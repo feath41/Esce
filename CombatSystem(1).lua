@@ -30,6 +30,10 @@ local Config = {
     HitboxTransparency = 0.5,                        -- Transparansi bagian dalam hitbox
     HitboxOutlineColor = Color3.fromRGB(255, 255, 255), -- Warna outline hitbox
     
+    -- Pengaturan Prioritas Target Terdekat Real-Time
+    DynamicSwitchCloser = true,    -- Otomatis pindah jika ada musuh yang lebih dekat (walau target lama masih hidup)
+    SwitchDistanceMargin = 3,      -- Selisih jarak (studs) agar perpindahan stabil & tidak bergetar
+    
     ToggleKey = Enum.KeyCode.Q,    -- Tombol Nyala/Mati (Keyboard)
     SwitchKey = Enum.KeyCode.Tab   -- Tombol Manual Switch musuh (Keyboard)
 }
@@ -645,20 +649,26 @@ RunService.RenderStepped:Connect(function(dt)
         local myRoot = GetTargetPart(myChar)
         if not myRoot then return end
 
-        local targetNeedsRefresh = false
+        -- Cari musuh terbaik/terdekat secara real-time
+        local bestTarget = FindBestTarget()
 
         if not CurrentTargetChar or not CurrentTargetPart or not IsValidEnemy(CurrentTargetChar) then
-            targetNeedsRefresh = true
+            -- Jika belum ada target, atau target mati/despawn
+            SetTarget(bestTarget)
         else
-            local distance = (CurrentTargetPart.Position - myRoot.Position).Magnitude
-            if distance > Config.BreakDistance then
-                targetNeedsRefresh = true
+            -- Target lama masih hidup
+            local curDist = (CurrentTargetPart.Position - myRoot.Position).Magnitude
+            if curDist > Config.BreakDistance then
+                -- Target lama kabur melebihi batas
+                SetTarget(bestTarget)
+            elseif Config.DynamicSwitchCloser and bestTarget and bestTarget.Character ~= CurrentTargetChar then
+                -- Ada musuh lain: jika jarak musuh baru lebih dekat dari target sekarang
+                local newDist = (bestTarget.Part.Position - myRoot.Position).Magnitude
+                if newDist < (curDist - Config.SwitchDistanceMargin) then
+                    -- Otomatis alihkan kuncian ke musuh yang lebih dekat!
+                    SetTarget(bestTarget)
+                end
             end
-        end
-
-        if targetNeedsRefresh then
-            local newTarget = FindBestTarget()
-            SetTarget(newTarget)
         end
 
         if CurrentTargetPart and CurrentTargetChar and IsValidEnemy(CurrentTargetChar) then
