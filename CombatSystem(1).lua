@@ -610,7 +610,7 @@ TargetTypeButton.MouseButton1Click:Connect(function()
             TargetTypeButton.Text = "Target: Hanya Player"
             TargetTypeButton.TextColor3 = Color3.fromRGB(255, 100, 120)
         else
-            Config.TargetType == "All"
+            Config.TargetType = "All"
             TargetTypeButton.Text = "Target: Player + Bot / NPC"
             TargetTypeButton.TextColor3 = Color3.fromRGB(80, 210, 255)
         end
