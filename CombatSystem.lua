@@ -1,140 +1,576 @@
 -- CombatSystem.lua
--- Sistem Continuous Auto-Lock Target (Mendukung Player & Bot/NPC + Hitbox Visual + pcall)
+-- Modern Hub Interface (Based on Pithers Hub Design) + Full Combat Auto-Lock Features
+-- Protected by pcall, Mobile/Delta & PC Ready
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
+local CoreGui = game:GetService("CoreGui")
 
-local LocalPlayer = Players.LocalPlayer
-local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
-local Camera = workspace.CurrentCamera
+local LocalPlayer = Players.LocalPlayer or Players:GetPropertyChangedSignal("LocalPlayer"):Wait() or Players.LocalPlayer
+local Camera = workspace.CurrentCamera or workspace:WaitForChild("Camera")
 
 -- ============================================================================
 -- KONFIGURASI SISTEM
 -- ============================================================================
 local Config = {
     MaxLockDistance = 80,          -- Jarak maksimal cari musuh (studs)
-    BreakDistance = 95,            -- Jarak batas lepas target jika menjauh
+    BreakDistance = 100,           -- Jarak batas lepas target (otomatis MaxLockDistance + 20)
     CameraSmoothing = 0.25,        -- Kehalusan gerakan kamera (0.1 halus, 1 instan)
     AutoFaceCharacter = true,      -- Karakter otomatis menghadap musuh
     CharacterFaceSpeed = 0.35,     -- Kecepatan putar badan karakter
-    TargetPart = "HumanoidRootPart",
-    LockMode = "Distance",         -- "Distance" (terdekat fisik) atau "Cursor" (terdekat kursor)
     
-    -- Konfigurasi Target (Player vs Bot/NPC)
-    TargetType = "All",            -- "All" (Player & Bot), "NPC" (Hanya Bot), "Player" (Hanya Player)
+    TargetPartChoice = "Head",     -- "Head" atau "Torso"
+    LockMode = "Distance",         -- "Distance" (Jarak 3D) atau "Cursor" (2D Layar)
+    TargetType = "All",            -- "All" (Player + Bot), "NPC" (Hanya Bot), "Player" (Hanya Player)
+    TeamCheck = true,              -- true = hanya musuh, false = semua
+    TargetSwitchMode = "Dynamic",   -- "Dynamic" = ganti ke yang lebih dekat, "Persistent" = sampai mati
+    SwitchDistanceMargin = 3,      -- Margin jarak (studs)
     
-    -- Konfigurasi Hitbox Target
-    HitboxColor = Color3.fromRGB(255, 45, 75),       -- Warna Hitbox (Merah terang)
-    HitboxTransparency = 0.5,                        -- Transparansi bagian dalam hitbox
-    HitboxOutlineColor = Color3.fromRGB(255, 255, 255), -- Warna outline hitbox
+    -- Konfigurasi Hitbox Visual
+    HitboxColor = Color3.fromRGB(255, 45, 75),
+    HitboxTransparency = 0.5,
+    HitboxOutlineColor = Color3.fromRGB(255, 255, 255),
     
-    ToggleKey = Enum.KeyCode.Q,    -- Tombol Nyala/Mati (ON/OFF)
-    SwitchKey = Enum.KeyCode.Tab   -- Tombol Manual Switch musuh berikutnya
+    ToggleKey = Enum.KeyCode.Q,
+    SwitchKey = Enum.KeyCode.Tab,
+    ToggleUIKey = Enum.KeyCode.RightShift
 }
 
+Config.BreakDistance = Config.MaxLockDistance + 20
+
 -- State Sistem
-local AutoLockEnabled = false      -- Fitur ON atau OFF
+local AutoLockEnabled = false
 local CurrentTargetPart = nil
 local CurrentTargetChar = nil
 local CurrentTargetIsNPC = false
 
 -- ============================================================================
--- PEMBUATAN UI LENGKAP (SCREEN GUI) - Diproteksi pcall
+-- PENGATURAN PARENT GUI AMAN
+-- ============================================================================
+local function GetSafeGuiParent()
+    local targetParent = nil
+    pcall(function()
+        if typeof(gethui) == "function" then
+            targetParent = gethui()
+        elseif CoreGui then
+            targetParent = CoreGui
+        end
+    end)
+    if not targetParent then
+        targetParent = LocalPlayer:WaitForChild("PlayerGui")
+    end
+    return targetParent
+end
+
+local SafeParent = GetSafeGuiParent()
+
+-- Bersihkan instance lama jika re-execute
+pcall(function()
+    local oldGui = SafeParent:FindFirstChild("CombatTargetGui")
+    if oldGui then oldGui:Destroy() end
+    local oldHighlight = game:FindFirstChild("CombatTargetHitboxHighlight", true)
+    if oldHighlight then oldHighlight:Destroy() end
+    local oldBox = game:FindFirstChild("CombatTargetHitboxBox", true)
+    if oldBox then oldBox:Destroy() end
+end)
+
+-- ============================================================================
+-- PEMBUATAN UI MODERN (PITHERS HUB DESIGN)
 -- ============================================================================
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "CombatTargetGui"
 ScreenGui.ResetOnSpawn = false
-ScreenGui.Parent = PlayerGui
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+pcall(function() ScreenGui.Parent = SafeParent end)
 
--- Main HUD Frame (Bisa digeser/drag)
+-- 1. Collapsed Bar / Mini Button (Floating Toggle)
+local CollapsedBar = Instance.new("Frame")
+CollapsedBar.Name = "CollapsedBar"
+CollapsedBar.Size = UDim2.new(0, 320, 0, 36)
+CollapsedBar.Position = UDim2.new(0.5, -160, 0.05, 0)
+CollapsedBar.BackgroundColor3 = Color3.fromRGB(15, 17, 23)
+CollapsedBar.BorderSizePixel = 0
+CollapsedBar.Visible = false
+CollapsedBar.ZIndex = 50
+CollapsedBar.Parent = ScreenGui
+
+local ColCorner = Instance.new("UICorner")
+ColCorner.CornerRadius = UDim.new(0, 8)
+ColCorner.Parent = CollapsedBar
+
+local ColStroke = Instance.new("UIStroke")
+ColStroke.Thickness = 1
+ColStroke.Color = Color3.fromRGB(40, 45, 60)
+ColStroke.Parent = CollapsedBar
+
+local ColIcon = Instance.new("TextLabel")
+ColIcon.Size = UDim2.new(0, 24, 0, 24)
+ColIcon.Position = UDim2.new(0, 8, 0.5, -12)
+ColIcon.BackgroundColor3 = Color3.fromRGB(0, 120, 255)
+ColIcon.Text = "⚡"
+ColIcon.TextColor3 = Color3.fromRGB(255, 255, 255)
+ColIcon.Font = Enum.Font.GothamBold
+ColIcon.TextSize = 13
+ColIcon.ZIndex = 51
+ColIcon.Parent = CollapsedBar
+
+local ColIconCorner = Instance.new("UICorner")
+ColIconCorner.CornerRadius = UDim.new(0, 6)
+ColIconCorner.Parent = ColIcon
+
+local ColTitle = Instance.new("TextLabel")
+ColTitle.Size = UDim2.new(0, 110, 1, 0)
+ColTitle.Position = UDim2.new(0, 38, 0, 0)
+ColTitle.BackgroundTransparency = 1
+ColTitle.Text = "FEATH HUB"
+ColTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+ColTitle.Font = Enum.Font.GothamBold
+ColTitle.TextSize = 12
+ColTitle.TextXAlignment = Enum.TextXAlignment.Left
+ColTitle.ZIndex = 51
+ColTitle.Parent = CollapsedBar
+
+local ExpandBtn = Instance.new("TextButton")
+ExpandBtn.Size = UDim2.new(0, 140, 0, 24)
+ExpandBtn.Position = UDim2.new(1, -150, 0.5, -12)
+ExpandBtn.BackgroundColor3 = Color3.fromRGB(25, 30, 42)
+ExpandBtn.Text = "📖 Click to Expand"
+ExpandBtn.TextColor3 = Color3.fromRGB(180, 210, 255)
+ExpandBtn.Font = Enum.Font.GothamMedium
+ExpandBtn.TextSize = 11
+ExpandBtn.ZIndex = 51
+ExpandBtn.Parent = CollapsedBar
+
+local ExpCorner = Instance.new("UICorner")
+ExpCorner.CornerRadius = UDim.new(0, 6)
+ExpCorner.Parent = ExpandBtn
+
+-- 2. Main Window Frame (520 x 360 px Standard Hub Layout)
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 245, 0, 225)
-MainFrame.Position = UDim2.new(0, 20, 0.5, -112)
-MainFrame.BackgroundColor3 = Color3.fromRGB(22, 24, 30)
-MainFrame.BackgroundTransparency = 0.08
+MainFrame.Size = UDim2.new(0, 520, 0, 360)
+MainFrame.Position = UDim2.new(0.5, -260, 0.5, -180)
+MainFrame.BackgroundColor3 = Color3.fromRGB(15, 17, 23)
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
-MainFrame.Draggable = true
 MainFrame.Parent = ScreenGui
 
 local MainCorner = Instance.new("UICorner")
-MainCorner.CornerRadius = UDim.new(0, 10)
+MainCorner.CornerRadius = UDim.new(0, 8)
 MainCorner.Parent = MainFrame
 
 local MainStroke = Instance.new("UIStroke")
-MainStroke.Thickness = 1.5
-MainStroke.Color = Color3.fromRGB(55, 60, 75)
+MainStroke.Thickness = 1
+MainStroke.Color = Color3.fromRGB(40, 45, 60)
 MainStroke.Parent = MainFrame
 
--- Header
-local TitleLabel = Instance.new("TextLabel")
-TitleLabel.Size = UDim2.new(1, -20, 0, 26)
-TitleLabel.Position = UDim2.new(0, 10, 0, 6)
-TitleLabel.BackgroundTransparency = 1
-TitleLabel.Text = "⚡ AUTO COMBAT LOCK"
-TitleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-TitleLabel.Font = Enum.Font.GothamBold
-TitleLabel.TextSize = 13
-TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
-TitleLabel.Parent = MainFrame
+-- Top Bar Header
+local TopBar = Instance.new("Frame")
+TopBar.Name = "TopBar"
+TopBar.Size = UDim2.new(1, 0, 0, 40)
+TopBar.BackgroundTransparency = 1
+TopBar.Parent = MainFrame
 
--- Status Badge (OFF / SEARCHING / LOCKED)
-local StatusBadge = Instance.new("TextLabel")
-StatusBadge.Size = UDim2.new(0, 80, 0, 20)
-StatusBadge.Position = UDim2.new(1, -90, 0, 9)
-StatusBadge.BackgroundColor3 = Color3.fromRGB(50, 52, 65)
-StatusBadge.Text = "OFF"
-StatusBadge.TextColor3 = Color3.fromRGB(160, 165, 180)
-StatusBadge.Font = Enum.Font.GothamBold
-StatusBadge.TextSize = 10
-StatusBadge.Parent = MainFrame
+local LogoBadge = Instance.new("TextLabel")
+LogoBadge.Size = UDim2.new(0, 24, 0, 24)
+LogoBadge.Position = UDim2.new(0, 12, 0, 8)
+LogoBadge.BackgroundColor3 = Color3.fromRGB(0, 120, 255)
+LogoBadge.Text = "⚡"
+LogoBadge.TextColor3 = Color3.fromRGB(255, 255, 255)
+LogoBadge.Font = Enum.Font.GothamBold
+LogoBadge.TextSize = 13
+LogoBadge.Parent = TopBar
 
-local BadgeCorner = Instance.new("UICorner")
-BadgeCorner.CornerRadius = UDim.new(0, 6)
-BadgeCorner.Parent = StatusBadge
+local LogoCorner = Instance.new("UICorner")
+LogoCorner.CornerRadius = UDim.new(0, 6)
+LogoCorner.Parent = LogoBadge
 
--- Target Info Card (Nama, Jarak, Status)
+local AppTitle = Instance.new("TextLabel")
+AppTitle.Size = UDim2.new(0, 95, 0, 24)
+AppTitle.Position = UDim2.new(0, 44, 0, 8)
+AppTitle.BackgroundTransparency = 1
+AppTitle.Text = "FEATH HUB"
+AppTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+AppTitle.Font = Enum.Font.GothamBold
+AppTitle.TextSize = 13
+AppTitle.TextXAlignment = Enum.TextXAlignment.Left
+AppTitle.Parent = TopBar
+
+local VersionBadge = Instance.new("TextLabel")
+VersionBadge.Size = UDim2.new(0, 30, 0, 16)
+VersionBadge.Position = UDim2.new(0, 142, 0, 12)
+VersionBadge.BackgroundTransparency = 1
+VersionBadge.Text = "v2.4"
+VersionBadge.TextColor3 = Color3.fromRGB(120, 150, 200)
+VersionBadge.Font = Enum.Font.Gotham
+VersionBadge.TextSize = 11
+VersionBadge.TextXAlignment = Enum.TextXAlignment.Left
+VersionBadge.Parent = TopBar
+
+local TagBadge = Instance.new("TextLabel")
+TagBadge.Size = UDim2.new(0, 62, 0, 18)
+TagBadge.Position = UDim2.new(0, 178, 0, 11)
+TagBadge.BackgroundColor3 = Color3.fromRGB(25, 30, 45)
+TagBadge.Text = "Universal"
+TagBadge.TextColor3 = Color3.fromRGB(100, 180, 255)
+TagBadge.Font = Enum.Font.GothamMedium
+TagBadge.TextSize = 10
+TagBadge.Parent = TopBar
+
+local TagCorner = Instance.new("UICorner")
+TagCorner.CornerRadius = UDim.new(0, 4)
+TagCorner.Parent = TagBadge
+
+-- Tombol Minimize & Close di TopBar
+local MinBtn = Instance.new("TextButton")
+MinBtn.Size = UDim2.new(0, 24, 0, 24)
+MinBtn.Position = UDim2.new(1, -60, 0, 8)
+MinBtn.BackgroundTransparency = 1
+MinBtn.Text = "—"
+MinBtn.TextColor3 = Color3.fromRGB(180, 185, 200)
+MinBtn.Font = Enum.Font.GothamBold
+MinBtn.TextSize = 14
+MinBtn.Parent = TopBar
+
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Size = UDim2.new(0, 24, 0, 24)
+CloseBtn.Position = UDim2.new(1, -32, 0, 8)
+CloseBtn.BackgroundTransparency = 1
+CloseBtn.Text = "✕"
+CloseBtn.TextColor3 = Color3.fromRGB(180, 185, 200)
+CloseBtn.Font = Enum.Font.GothamBold
+CloseBtn.TextSize = 13
+CloseBtn.Parent = TopBar
+
+local TopDivider = Instance.new("Frame")
+TopDivider.Size = UDim2.new(1, 0, 0, 1)
+TopDivider.Position = UDim2.new(0, 0, 0, 40)
+TopDivider.BackgroundColor3 = Color3.fromRGB(30, 35, 48)
+TopDivider.BorderSizePixel = 0
+TopDivider.Parent = MainFrame
+
+-- Logika Minimize & Restore
+MinBtn.MouseButton1Click:Connect(function()
+    MainFrame.Visible = false
+    CollapsedBar.Visible = true
+end)
+
+ExpandBtn.MouseButton1Click:Connect(function()
+    CollapsedBar.Visible = false
+    MainFrame.Visible = true
+end)
+
+CloseBtn.MouseButton1Click:Connect(function()
+    ScreenGui.Enabled = false
+end)
+
+-- Sidebar Navigasi Kiri (130px)
+local Sidebar = Instance.new("Frame")
+Sidebar.Name = "Sidebar"
+Sidebar.Size = UDim2.new(0, 130, 1, -41)
+Sidebar.Position = UDim2.new(0, 0, 0, 41)
+Sidebar.BackgroundColor3 = Color3.fromRGB(18, 20, 27)
+Sidebar.BorderSizePixel = 0
+Sidebar.Parent = MainFrame
+
+local SideDivider = Instance.new("Frame")
+SideDivider.Size = UDim2.new(0, 1, 1, 0)
+SideDivider.Position = UDim2.new(1, -1, 0, 0)
+SideDivider.BackgroundColor3 = Color3.fromRGB(30, 35, 48)
+SideDivider.BorderSizePixel = 0
+SideDivider.Parent = Sidebar
+
+-- Status Inject Card di bawah Sidebar
+local StatusCard = Instance.new("Frame")
+StatusCard.Size = UDim2.new(1, -16, 0, 36)
+StatusCard.Position = UDim2.new(0, 8, 1, -44)
+StatusCard.BackgroundColor3 = Color3.fromRGB(13, 15, 20)
+StatusCard.BorderSizePixel = 0
+StatusCard.Parent = Sidebar
+
+local StatusCorner = Instance.new("UICorner")
+StatusCorner.CornerRadius = UDim.new(0, 6)
+StatusCorner.Parent = StatusCard
+
+local DotIndicator = Instance.new("Frame")
+DotIndicator.Size = UDim2.new(0, 7, 0, 7)
+DotIndicator.Position = UDim2.new(0, 10, 0.5, -3)
+DotIndicator.BackgroundColor3 = Color3.fromRGB(0, 230, 120)
+DotIndicator.BorderSizePixel = 0
+DotIndicator.Parent = StatusCard
+
+local DotCorner = Instance.new("UICorner")
+DotCorner.CornerRadius = UDim.new(1, 0)
+DotCorner.Parent = DotIndicator
+
+local StatusTitle = Instance.new("TextLabel")
+StatusTitle.Size = UDim2.new(1, -26, 0, 12)
+StatusTitle.Position = UDim2.new(0, 22, 0, 5)
+StatusTitle.BackgroundTransparency = 1
+StatusTitle.Text = "STATUS"
+StatusTitle.TextColor3 = Color3.fromRGB(120, 130, 150)
+StatusTitle.Font = Enum.Font.GothamMedium
+StatusTitle.TextSize = 8
+StatusTitle.TextXAlignment = Enum.TextXAlignment.Left
+StatusTitle.Parent = StatusCard
+
+local StatusVal = Instance.new("TextLabel")
+StatusVal.Size = UDim2.new(1, -26, 0, 14)
+StatusVal.Position = UDim2.new(0, 22, 0, 17)
+StatusVal.BackgroundTransparency = 1
+StatusVal.Text = "Injected"
+StatusVal.TextColor3 = Color3.fromRGB(0, 230, 120)
+StatusVal.Font = Enum.Font.GothamBold
+StatusVal.TextSize = 10
+StatusVal.TextXAlignment = Enum.TextXAlignment.Left
+StatusVal.Parent = StatusCard
+
+-- Content Area (Kanan)
+local ContentArea = Instance.new("Frame")
+ContentArea.Name = "ContentArea"
+ContentArea.Size = UDim2.new(1, -131, 1, -41)
+ContentArea.Position = UDim2.new(0, 131, 0, 41)
+ContentArea.BackgroundTransparency = 1
+ContentArea.ClipsDescendants = true
+ContentArea.Parent = MainFrame
+
+-- Tab Frames
+local Tabs = {}
+
+local function CreateTabFrame(name)
+    local frame = Instance.new("ScrollingFrame")
+    frame.Name = name .. "Tab"
+    frame.Size = UDim2.new(1, 0, 1, 0)
+    frame.BackgroundTransparency = 1
+    frame.BorderSizePixel = 0
+    frame.ScrollBarThickness = 3
+    frame.ScrollBarImageColor3 = Color3.fromRGB(50, 55, 75)
+    frame.CanvasSize = UDim2.new(0, 0, 0, 460)
+    frame.Visible = false
+    frame.Parent = ContentArea
+    Tabs[name] = frame
+    return frame
+end
+
+local MainTab = CreateTabFrame("Main")
+local PlayerTab = CreateTabFrame("Player")
+local VisualTab = CreateTabFrame("Visual")
+local SettingsTab = CreateTabFrame("Settings")
+
+-- Sistem Tab Switching Navigasi
+local NavButtons = {}
+local TabList = {
+    { Name = "Main", Icon = "🏠" },
+    { Name = "Player", Icon = "👤" },
+    { Name = "Visual", Icon = "👁" },
+    { Name = "Settings", Icon = "⚙" }
+}
+
+local function SwitchTab(tabName)
+    for name, f in pairs(Tabs) do
+        f.Visible = (name == tabName)
+    end
+    for name, btn in pairs(NavButtons) do
+        local isSelected = (name == tabName)
+        btn.BackgroundColor3 = isSelected and Color3.fromRGB(24, 32, 50) or Color3.fromRGB(18, 20, 27)
+        btn.TextColor3 = isSelected and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(150, 155, 170)
+        local stroke = btn:FindFirstChildOfClass("UIStroke")
+        if stroke then
+            stroke.Color = isSelected and Color3.fromRGB(0, 120, 255) or Color3.fromRGB(18, 20, 27)
+        end
+    end
+end
+
+for idx, item in ipairs(TabList) do
+    local btn = Instance.new("TextButton")
+    btn.Name = item.Name .. "NavBtn"
+    btn.Size = UDim2.new(1, -16, 0, 32)
+    btn.Position = UDim2.new(0, 8, 0, 12 + (idx - 1) * 38)
+    btn.BackgroundColor3 = Color3.fromRGB(18, 20, 27)
+    btn.Text = "  " .. item.Icon .. "  " .. item.Name
+    btn.TextColor3 = Color3.fromRGB(150, 155, 170)
+    btn.Font = Enum.Font.GothamMedium
+    btn.TextSize = 11
+    btn.TextXAlignment = Enum.TextXAlignment.Left
+    btn.BorderSizePixel = 0
+    btn.Parent = Sidebar
+
+    local btnCorner = Instance.new("UICorner")
+    btnCorner.CornerRadius = UDim.new(0, 6)
+    btnCorner.Parent = btn
+
+    local btnStroke = Instance.new("UIStroke")
+    btnStroke.Thickness = 1
+    btnStroke.Color = Color3.fromRGB(18, 20, 27)
+    btnStroke.Parent = btn
+
+    btn.MouseButton1Click:Connect(function()
+        SwitchTab(item.Name)
+    end)
+
+    NavButtons[item.Name] = btn
+end
+
+-- Default Buka Tab Player
+SwitchTab("Player")
+
+-- ============================================================================
+-- 1. ISI TAB MAIN (DEVELOPER PROFILE / CREATED BY FEATH)
+-- ============================================================================
+local ProfileCard = Instance.new("Frame")
+ProfileCard.Size = UDim2.new(1, -28, 0, 100)
+ProfileCard.Position = UDim2.new(0, 14, 0, 14)
+ProfileCard.BackgroundColor3 = Color3.fromRGB(20, 24, 34)
+ProfileCard.BorderSizePixel = 0
+ProfileCard.Parent = MainTab
+
+local ProfCorner = Instance.new("UICorner")
+ProfCorner.CornerRadius = UDim.new(0, 8)
+ProfCorner.Parent = ProfileCard
+
+local ProfStroke = Instance.new("UIStroke")
+ProfStroke.Thickness = 1
+ProfStroke.Color = Color3.fromRGB(45, 55, 80)
+ProfStroke.Parent = ProfileCard
+
+local AvatarCircle = Instance.new("ImageLabel")
+AvatarCircle.Size = UDim2.new(0, 54, 0, 54)
+AvatarCircle.Position = UDim2.new(0, 16, 0.5, -27)
+AvatarCircle.BackgroundColor3 = Color3.fromRGB(28, 35, 52)
+AvatarCircle.Image = "rbxassetid://10903333338" -- Default stylish icon avatar
+AvatarCircle.BorderSizePixel = 0
+AvatarCircle.Parent = ProfileCard
+
+local AvCorner = Instance.new("UICorner")
+AvCorner.CornerRadius = UDim.new(1, 0)
+AvCorner.Parent = AvatarCircle
+
+local DevName = Instance.new("TextLabel")
+DevName.Size = UDim2.new(0, 200, 0, 20)
+DevName.Position = UDim2.new(0, 82, 0, 22)
+DevName.BackgroundTransparency = 1
+DevName.Text = "Created by feath"
+DevName.TextColor3 = Color3.fromRGB(255, 255, 255)
+DevName.Font = Enum.Font.GothamBold
+DevName.TextSize = 14
+DevName.TextXAlignment = Enum.TextXAlignment.Left
+DevName.Parent = ProfileCard
+
+local DevRole = Instance.new("TextLabel")
+DevRole.Size = UDim2.new(0, 200, 0, 16)
+DevRole.Position = UDim2.new(0, 82, 0, 44)
+DevRole.BackgroundTransparency = 1
+DevRole.Text = "Developer • Combat System Suite"
+DevRole.TextColor3 = Color3.fromRGB(80, 210, 255)
+DevRole.Font = Enum.Font.GothamMedium
+DevRole.TextSize = 11
+DevRole.TextXAlignment = Enum.TextXAlignment.Left
+DevRole.Parent = ProfileCard
+
+local DevBadge = Instance.new("TextLabel")
+DevBadge.Size = UDim2.new(0, 75, 0, 18)
+DevBadge.Position = UDim2.new(0, 82, 0, 64)
+DevBadge.BackgroundColor3 = Color3.fromRGB(30, 42, 68)
+DevBadge.Text = "VERIFIED DEV"
+DevBadge.TextColor3 = Color3.fromRGB(120, 180, 255)
+DevBadge.Font = Enum.Font.GothamBold
+DevBadge.TextSize = 9
+DevBadge.Parent = ProfileCard
+
+local DevBadgeCorner = Instance.new("UICorner")
+DevBadgeCorner.CornerRadius = UDim.new(0, 4)
+DevBadgeCorner.Parent = DevBadge
+
+-- Info Tambahan di Tab Main
+local HubInfo = Instance.new("TextLabel")
+HubInfo.Size = UDim2.new(1, -28, 0, 40)
+HubInfo.Position = UDim2.new(0, 14, 0, 126)
+HubInfo.BackgroundTransparency = 1
+HubInfo.Text = "Selamat datang di Feath Hub. Buka tab 'Player' untuk mengontrol sistem Auto-Lock Combat, pengaturan jarak, dan opsi penargetan."
+HubInfo.TextColor3 = Color3.fromRGB(150, 155, 170)
+HubInfo.Font = Enum.Font.Gotham
+HubInfo.TextSize = 11
+HubInfo.TextWrapped = true
+HubInfo.TextXAlignment = Enum.TextXAlignment.Left
+HubInfo.Parent = MainTab
+
+-- ============================================================================
+-- 2. ISI TAB VISUAL & SETTINGS (DIKOSONGKAN SESUAI INSTRUKSI)
+-- ============================================================================
+local EmptyVisualLabel = Instance.new("TextLabel")
+EmptyVisualLabel.Size = UDim2.new(1, 0, 1, 0)
+EmptyVisualLabel.BackgroundTransparency = 1
+EmptyVisualLabel.Text = "Belum ada konfigurasi di tab ini."
+EmptyVisualLabel.TextColor3 = Color3.fromRGB(100, 105, 120)
+EmptyVisualLabel.Font = Enum.Font.GothamMedium
+EmptyVisualLabel.TextSize = 12
+EmptyVisualLabel.Parent = VisualTab
+
+local EmptySettingsLabel = Instance.new("TextLabel")
+EmptySettingsLabel.Size = UDim2.new(1, 0, 1, 0)
+EmptySettingsLabel.BackgroundTransparency = 1
+EmptySettingsLabel.Text = "Pengaturan Umum (Kosong)."
+EmptySettingsLabel.TextColor3 = Color3.fromRGB(100, 105, 120)
+EmptySettingsLabel.Font = Enum.Font.GothamMedium
+EmptySettingsLabel.TextSize = 12
+EmptySettingsLabel.Parent = SettingsTab
+
+-- ============================================================================
+-- 3. ISI TAB PLAYER (SELURUH FUNGSI COMBAT LAMA DITEMPATKAN DI SINI)
+-- ============================================================================
+
+-- Section Title
+local SectionTitle = Instance.new("TextLabel")
+SectionTitle.Size = UDim2.new(1, -28, 0, 18)
+SectionTitle.Position = UDim2.new(0, 14, 0, 10)
+SectionTitle.BackgroundTransparency = 1
+SectionTitle.Text = "COMBAT AUTO-LOCK CONTROLS"
+SectionTitle.TextColor3 = Color3.fromRGB(120, 130, 150)
+SectionTitle.Font = Enum.Font.GothamBold
+SectionTitle.TextSize = 10
+SectionTitle.TextXAlignment = Enum.TextXAlignment.Left
+SectionTitle.Parent = PlayerTab
+
+-- Target Info Card (Nama, Jarak, HP Bar)
 local InfoCard = Instance.new("Frame")
-InfoCard.Size = UDim2.new(1, -20, 0, 58)
-InfoCard.Position = UDim2.new(0, 10, 0, 38)
-InfoCard.BackgroundColor3 = Color3.fromRGB(15, 17, 21)
+InfoCard.Size = UDim2.new(1, -28, 0, 54)
+InfoCard.Position = UDim2.new(0, 14, 0, 32)
+InfoCard.BackgroundColor3 = Color3.fromRGB(18, 21, 29)
 InfoCard.BorderSizePixel = 0
-InfoCard.Parent = MainFrame
+InfoCard.Parent = PlayerTab
 
 local InfoCorner = Instance.new("UICorner")
 InfoCorner.CornerRadius = UDim.new(0, 6)
 InfoCorner.Parent = InfoCard
 
 local TargetNameLabel = Instance.new("TextLabel")
-TargetNameLabel.Size = UDim2.new(1, -12, 0, 18)
-TargetNameLabel.Position = UDim2.new(0, 8, 0, 6)
+TargetNameLabel.Size = UDim2.new(1, -12, 0, 16)
+TargetNameLabel.Position = UDim2.new(0, 8, 0, 5)
 TargetNameLabel.BackgroundTransparency = 1
 TargetNameLabel.Text = "Status: Fitur Nonaktif"
 TargetNameLabel.TextColor3 = Color3.fromRGB(190, 195, 205)
 TargetNameLabel.Font = Enum.Font.GothamMedium
-TargetNameLabel.TextSize = 12
+TargetNameLabel.TextSize = 11
 TargetNameLabel.TextXAlignment = Enum.TextXAlignment.Left
 TargetNameLabel.Parent = InfoCard
 
 local DistanceLabel = Instance.new("TextLabel")
 DistanceLabel.Size = UDim2.new(1, -12, 0, 14)
-DistanceLabel.Position = UDim2.new(0, 8, 0, 24)
+DistanceLabel.Position = UDim2.new(0, 8, 0, 21)
 DistanceLabel.BackgroundTransparency = 1
 DistanceLabel.Text = "Jarak: --"
 DistanceLabel.TextColor3 = Color3.fromRGB(130, 135, 150)
 DistanceLabel.Font = Enum.Font.Gotham
-DistanceLabel.TextSize = 11
+DistanceLabel.TextSize = 10
 DistanceLabel.TextXAlignment = Enum.TextXAlignment.Left
 DistanceLabel.Parent = InfoCard
 
--- Health Bar Background
 local HealthBarBg = Instance.new("Frame")
-HealthBarBg.Size = UDim2.new(1, -16, 0, 6)
-HealthBarBg.Position = UDim2.new(0, 8, 0, 44)
-HealthBarBg.BackgroundColor3 = Color3.fromRGB(35, 38, 48)
+HealthBarBg.Size = UDim2.new(1, -16, 0, 5)
+HealthBarBg.Position = UDim2.new(0, 8, 0, 40)
+HealthBarBg.BackgroundColor3 = Color3.fromRGB(30, 34, 44)
 HealthBarBg.BorderSizePixel = 0
 HealthBarBg.Parent = InfoCard
 
@@ -142,7 +578,6 @@ local HealthBarCorner = Instance.new("UICorner")
 HealthBarCorner.CornerRadius = UDim.new(1, 0)
 HealthBarCorner.Parent = HealthBarBg
 
--- Health Bar Fill
 local HealthBarFill = Instance.new("Frame")
 HealthBarFill.Size = UDim2.new(0, 0, 1, 0)
 HealthBarFill.BackgroundColor3 = Color3.fromRGB(50, 205, 120)
@@ -153,74 +588,333 @@ local HealthBarFillCorner = Instance.new("UICorner")
 HealthBarFillCorner.CornerRadius = UDim.new(1, 0)
 HealthBarFillCorner.Parent = HealthBarFill
 
--- Tombol Toggle ON/OFF Utama
+-- Tombol Toggle ON/OFF Utama & Switch Target
 local ToggleButton = Instance.new("TextButton")
-ToggleButton.Size = UDim2.new(0.65, -12, 0, 30)
-ToggleButton.Position = UDim2.new(0, 10, 0, 102)
+ToggleButton.Size = UDim2.new(0.68, -6, 0, 30)
+ToggleButton.Position = UDim2.new(0, 14, 0, 94)
 ToggleButton.BackgroundColor3 = Color3.fromRGB(0, 135, 240)
 ToggleButton.Text = "NYALAKAN (Q)"
 ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 ToggleButton.Font = Enum.Font.GothamBold
-ToggleButton.TextSize = 12
+ToggleButton.TextSize = 11
 ToggleButton.BorderSizePixel = 0
-ToggleButton.Parent = MainFrame
+ToggleButton.Parent = PlayerTab
 
 local ToggleBtnCorner = Instance.new("UICorner")
 ToggleBtnCorner.CornerRadius = UDim.new(0, 6)
 ToggleBtnCorner.Parent = ToggleButton
 
--- Tombol Switch Target Manual
 local SwitchButton = Instance.new("TextButton")
-SwitchButton.Size = UDim2.new(0.35, -4, 0, 30)
-SwitchButton.Position = UDim2.new(0.65, 4, 0, 102)
-SwitchButton.BackgroundColor3 = Color3.fromRGB(42, 45, 56)
+SwitchButton.Size = UDim2.new(0.32, -22, 0, 30)
+SwitchButton.Position = UDim2.new(0.68, 14, 0, 94)
+SwitchButton.BackgroundColor3 = Color3.fromRGB(35, 40, 52)
 SwitchButton.Text = "NEXT (TAB)"
 SwitchButton.TextColor3 = Color3.fromRGB(220, 220, 220)
 SwitchButton.Font = Enum.Font.GothamBold
-SwitchButton.TextSize = 11
+SwitchButton.TextSize = 10
 SwitchButton.BorderSizePixel = 0
-SwitchButton.Parent = MainFrame
+SwitchButton.Parent = PlayerTab
 
 local SwitchBtnCorner = Instance.new("UICorner")
 SwitchBtnCorner.CornerRadius = UDim.new(0, 6)
 SwitchBtnCorner.Parent = SwitchButton
 
--- Tombol Toggle Mode Pencarian (Jarak vs Layar)
-local ModeButton = Instance.new("TextButton")
-ModeButton.Size = UDim2.new(1, -20, 0, 26)
-ModeButton.Position = UDim2.new(0, 10, 0, 138)
-ModeButton.BackgroundColor3 = Color3.fromRGB(30, 33, 42)
-ModeButton.Text = "Mode: Jarak Fisik Terdekat [3D]"
-ModeButton.TextColor3 = Color3.fromRGB(180, 185, 200)
-ModeButton.Font = Enum.Font.GothamMedium
-ModeButton.TextSize = 11
-ModeButton.BorderSizePixel = 0
-ModeButton.Parent = MainFrame
+-- ============================================================================
+-- DROPDOWN SYSTEM UNTUK TAB PLAYER
+-- ============================================================================
+local activeDropdownList = nil
 
-local ModeBtnCorner = Instance.new("UICorner")
-ModeBtnCorner.CornerRadius = UDim.new(0, 6)
-ModeBtnCorner.Parent = ModeButton
+local function CloseAllDropdowns()
+    if activeDropdownList then
+        activeDropdownList.Visible = false
+        activeDropdownList = nil
+    end
+end
 
--- Tombol Filter Target (Semua / Bot Saja / Player Saja)
-local TargetTypeButton = Instance.new("TextButton")
-TargetTypeButton.Size = UDim2.new(1, -20, 0, 26)
-TargetTypeButton.Position = UDim2.new(0, 10, 0, 170)
-TargetTypeButton.BackgroundColor3 = Color3.fromRGB(30, 33, 42)
-TargetTypeButton.Text = "Target: Player + Bot / NPC"
-TargetTypeButton.TextColor3 = Color3.fromRGB(80, 210, 255)
-TargetTypeButton.Font = Enum.Font.GothamMedium
-TargetTypeButton.TextSize = 11
-TargetTypeButton.BorderSizePixel = 0
-TargetTypeButton.Parent = MainFrame
+local function CreateDropdown(parent, labelText, yPos, options, defaultKey, zIndexBase, onSelect)
+    local dLabel = Instance.new("TextLabel")
+    dLabel.Size = UDim2.new(1, -28, 0, 14)
+    dLabel.Position = UDim2.new(0, 14, 0, yPos)
+    dLabel.BackgroundTransparency = 1
+    dLabel.Text = labelText
+    dLabel.TextColor3 = Color3.fromRGB(150, 155, 170)
+    dLabel.Font = Enum.Font.GothamMedium
+    dLabel.TextSize = 10
+    dLabel.TextXAlignment = Enum.TextXAlignment.Left
+    dLabel.Parent = parent
 
-local TargetTypeCorner = Instance.new("UICorner")
-TargetTypeCorner.CornerRadius = UDim.new(0, 6)
-TargetTypeCorner.Parent = TargetTypeButton
+    local dButton = Instance.new("TextButton")
+    dButton.Size = UDim2.new(1, -28, 0, 26)
+    dButton.Position = UDim2.new(0, 14, 0, yPos + 16)
+    dButton.BackgroundColor3 = Color3.fromRGB(25, 28, 38)
+    dButton.BorderSizePixel = 0
+    dButton.Font = Enum.Font.Gotham
+    dButton.TextSize = 11
+    dButton.TextColor3 = Color3.fromRGB(230, 235, 245)
+    dButton.TextXAlignment = Enum.TextXAlignment.Left
+    dButton.ZIndex = zIndexBase
+    dButton.Parent = parent
+
+    local dBtnCorner = Instance.new("UICorner")
+    dBtnCorner.CornerRadius = UDim.new(0, 6)
+    dBtnCorner.Parent = dButton
+
+    local dBtnStroke = Instance.new("UIStroke")
+    dBtnStroke.Thickness = 1
+    dBtnStroke.Color = Color3.fromRGB(45, 50, 65)
+    dBtnStroke.Parent = dButton
+
+    local arrow = Instance.new("TextLabel")
+    arrow.Size = UDim2.new(0, 20, 1, 0)
+    arrow.Position = UDim2.new(1, -25, 0, 0)
+    arrow.BackgroundTransparency = 1
+    arrow.Text = "▼"
+    arrow.TextColor3 = Color3.fromRGB(140, 145, 160)
+    arrow.Font = Enum.Font.GothamBold
+    arrow.TextSize = 9
+    arrow.ZIndex = zIndexBase
+    arrow.Parent = dButton
+
+    local listFrame = Instance.new("Frame")
+    listFrame.Size = UDim2.new(1, -28, 0, #options * 24 + 4)
+    listFrame.Position = UDim2.new(0, 14, 0, yPos + 44)
+    listFrame.BackgroundColor3 = Color3.fromRGB(20, 23, 31)
+    listFrame.BorderSizePixel = 0
+    listFrame.Visible = false
+    listFrame.ZIndex = zIndexBase + 10
+    listFrame.Parent = parent
+
+    local listCorner = Instance.new("UICorner")
+    listCorner.CornerRadius = UDim.new(0, 6)
+    listCorner.Parent = listFrame
+
+    local listStroke = Instance.new("UIStroke")
+    listStroke.Thickness = 1
+    listStroke.Color = Color3.fromRGB(60, 65, 80)
+    listStroke.Parent = listFrame
+
+    for idx, opt in ipairs(options) do
+        local optBtn = Instance.new("TextButton")
+        optBtn.Size = UDim2.new(1, -6, 0, 22)
+        optBtn.Position = UDim2.new(0, 3, 0, (idx - 1) * 24 + 2)
+        optBtn.BackgroundColor3 = Color3.fromRGB(20, 23, 31)
+        optBtn.BackgroundTransparency = 1
+        optBtn.Text = "  " .. opt.Name
+        optBtn.TextColor3 = Color3.fromRGB(200, 205, 215)
+        optBtn.Font = Enum.Font.Gotham
+        optBtn.TextSize = 10
+        optBtn.TextXAlignment = Enum.TextXAlignment.Left
+        optBtn.ZIndex = zIndexBase + 11
+        optBtn.Parent = listFrame
+
+        local optCorner = Instance.new("UICorner")
+        optCorner.CornerRadius = UDim.new(0, 4)
+        optCorner.Parent = optBtn
+
+        if opt.Value == defaultKey then
+            dButton.Text = "  " .. opt.Name
+            optBtn.TextColor3 = Color3.fromRGB(80, 210, 255)
+        end
+
+        optBtn.MouseButton1Click:Connect(function()
+            dButton.Text = "  " .. opt.Name
+            arrow.Text = "▼"
+            listFrame.Visible = false
+            activeDropdownList = nil
+
+            for _, child in ipairs(listFrame:GetChildren()) do
+                if child:IsA("TextButton") then
+                    child.TextColor3 = Color3.fromRGB(200, 205, 215)
+                end
+            end
+            optBtn.TextColor3 = Color3.fromRGB(80, 210, 255)
+
+            onSelect(opt.Value)
+        end)
+    end
+
+    dButton.MouseButton1Click:Connect(function()
+        if listFrame.Visible then
+            listFrame.Visible = false
+            arrow.Text = "▼"
+            if activeDropdownList == listFrame then
+                activeDropdownList = nil
+            end
+        else
+            CloseAllDropdowns()
+            listFrame.Visible = true
+            arrow.Text = "▲"
+            activeDropdownList = listFrame
+        end
+    end)
+
+    return dButton
+end
+
+-- Inisialisasi 5 Dropdown di Tab Player
+CreateDropdown(PlayerTab, "TARGET BODY PART:", 132, {
+    { Name = "Head / Kepala", Value = "Head" },
+    { Name = "Torso / Badan (HumanoidRootPart)", Value = "Torso" }
+}, Config.TargetPartChoice, 20, function(val)
+    Config.TargetPartChoice = val
+    if AutoLockEnabled and CurrentTargetChar then
+        CurrentTargetPart = GetTargetPart(CurrentTargetChar)
+    end
+end)
+
+CreateDropdown(PlayerTab, "TARGET SWITCH BEHAVIOR:", 184, {
+    { Name = "Auto Ganti (Jika Ada Musuh Lebih Dekat)", Value = "Dynamic" },
+    { Name = "Menetap (Kunci Sampai Target Mati)", Value = "Persistent" }
+}, Config.TargetSwitchMode, 16, function(val)
+    Config.TargetSwitchMode = val
+end)
+
+CreateDropdown(PlayerTab, "AIM LOCK MODE:", 236, {
+    { Name = "Jarak 3D Terdekat (Distance)", Value = "Distance" },
+    { Name = "Kursor / Tengah Layar (2D)", Value = "Cursor" }
+}, Config.LockMode, 12, function(val)
+    Config.LockMode = val
+end)
+
+CreateDropdown(PlayerTab, "TARGET ENTITY FILTER:", 288, {
+    { Name = "Semua (Player + Bot / NPC)", Value = "All" },
+    { Name = "Hanya Bot / NPC / Monster", Value = "NPC" },
+    { Name = "Hanya Pemain Lain (Player)", Value = "Player" }
+}, Config.TargetType, 8, function(val)
+    Config.TargetType = val
+    if AutoLockEnabled then
+        local best = FindBestTarget()
+        SetTarget(best)
+    end
+end)
+
+CreateDropdown(PlayerTab, "TEAM FILTER (TEAM CHECK):", 340, {
+    { Name = "Hanya Musuh (Beda Team) [Aktif]", Value = true },
+    { Name = "Bebas / Semua Team [Nonaktif]", Value = false }
+}, Config.TeamCheck, 4, function(val)
+    Config.TeamCheck = val
+    if AutoLockEnabled then
+        local best = FindBestTarget()
+        SetTarget(best)
+    end
+end)
+
+-- ============================================================================
+-- SLIDER PENGATUR JARAK DETEKSI DI TAB PLAYER
+-- ============================================================================
+local MinDistance = 20
+local MaxDistance = 300
+
+local SliderContainer = Instance.new("Frame")
+SliderContainer.Name = "SliderContainer"
+SliderContainer.Size = UDim2.new(1, -28, 0, 48)
+SliderContainer.Position = UDim2.new(0, 14, 0, 396)
+SliderContainer.BackgroundTransparency = 1
+SliderContainer.Parent = PlayerTab
+
+local SliderTitle = Instance.new("TextLabel")
+SliderTitle.Size = UDim2.new(0.6, 0, 0, 14)
+SliderTitle.Position = UDim2.new(0, 0, 0, 0)
+SliderTitle.BackgroundTransparency = 1
+SliderTitle.Text = "JARAK DETEKSI (STUDS):"
+SliderTitle.TextColor3 = Color3.fromRGB(150, 155, 170)
+SliderTitle.Font = Enum.Font.GothamMedium
+SliderTitle.TextSize = 10
+SliderTitle.TextXAlignment = Enum.TextXAlignment.Left
+SliderTitle.Parent = SliderContainer
+
+local SliderValueLabel = Instance.new("TextLabel")
+SliderValueLabel.Size = UDim2.new(0.4, 0, 0, 14)
+SliderValueLabel.Position = UDim2.new(0.6, 0, 0, 0)
+SliderValueLabel.BackgroundTransparency = 1
+SliderValueLabel.Text = string.format("%d studs (Break: %d)", Config.MaxLockDistance, Config.BreakDistance)
+SliderValueLabel.TextColor3 = Color3.fromRGB(80, 210, 255)
+SliderValueLabel.Font = Enum.Font.GothamBold
+SliderValueLabel.TextSize = 10
+SliderValueLabel.TextXAlignment = Enum.TextXAlignment.Right
+SliderValueLabel.Parent = SliderContainer
+
+local SliderBar = Instance.new("Frame")
+SliderBar.Name = "SliderBar"
+SliderBar.Size = UDim2.new(1, 0, 0, 8)
+SliderBar.Position = UDim2.new(0, 0, 0, 20)
+SliderBar.BackgroundColor3 = Color3.fromRGB(30, 34, 46)
+SliderBar.BorderSizePixel = 0
+SliderBar.Parent = SliderContainer
+
+local SliderBarCorner = Instance.new("UICorner")
+SliderBarCorner.CornerRadius = UDim.new(1, 0)
+SliderBarCorner.Parent = SliderBar
+
+local SliderFill = Instance.new("Frame")
+SliderFill.Name = "SliderFill"
+local initialRatio = math.clamp((Config.MaxLockDistance - MinDistance) / (MaxDistance - MinDistance), 0, 1)
+SliderFill.Size = UDim2.new(initialRatio, 0, 1, 0)
+SliderFill.BackgroundColor3 = Color3.fromRGB(0, 140, 255)
+SliderFill.BorderSizePixel = 0
+SliderFill.Parent = SliderBar
+
+local SliderFillCorner = Instance.new("UICorner")
+SliderFillCorner.CornerRadius = UDim.new(1, 0)
+SliderFillCorner.Parent = SliderFill
+
+local SliderKnob = Instance.new("Frame")
+SliderKnob.Name = "SliderKnob"
+SliderKnob.Size = UDim2.new(0, 16, 0, 16)
+SliderKnob.AnchorPoint = Vector2.new(0.5, 0.5)
+SliderKnob.Position = UDim2.new(initialRatio, 0, 0.5, 0)
+SliderKnob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+SliderKnob.BorderSizePixel = 0
+SliderKnob.ZIndex = 3
+SliderKnob.Parent = SliderBar
+
+local KnobCorner = Instance.new("UICorner")
+KnobCorner.CornerRadius = UDim.new(1, 0)
+KnobCorner.Parent = SliderKnob
+
+local KnobStroke = Instance.new("UIStroke")
+KnobStroke.Thickness = 1.5
+KnobStroke.Color = Color3.fromRGB(0, 140, 255)
+KnobStroke.Parent = SliderKnob
+
+local isSliding = false
+
+local function UpdateSlider(inputX)
+    local barAbsolutePos = SliderBar.AbsolutePosition.X
+    local barAbsoluteSize = SliderBar.AbsoluteSize.X
+    local ratio = math.clamp((inputX - barAbsolutePos) / barAbsoluteSize, 0, 1)
+    
+    local newDistance = math.floor(MinDistance + (ratio * (MaxDistance - MinDistance)))
+    Config.MaxLockDistance = newDistance
+    Config.BreakDistance = newDistance + 20
+    
+    SliderFill.Size = UDim2.new(ratio, 0, 1, 0)
+    SliderKnob.Position = UDim2.new(ratio, 0, 0.5, 0)
+    SliderValueLabel.Text = string.format("%d studs (Break: %d)", newDistance, Config.BreakDistance)
+end
+
+SliderBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        isSliding = true
+        UpdateSlider(input.Position.X)
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if isSliding and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        UpdateSlider(input.Position.X)
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        isSliding = false
+    end
+end)
 
 -- ============================================================================
 -- HITBOX VISUAL SYSTEM (HIGHLIGHT + SELECTIONBOX)
 -- ============================================================================
-
 local TargetHighlight = Instance.new("Highlight")
 TargetHighlight.Name = "CombatTargetHitboxHighlight"
 TargetHighlight.FillColor = Config.HitboxColor
@@ -237,19 +931,23 @@ TargetHitboxBox.SurfaceTransparency = 0.65
 TargetHitboxBox.LineThickness = 0.05
 
 -- ============================================================================
--- LOGIKA UTAMA COMBAT (PLAYER & BOT SUPPORT) DILINDUNGI PCALL
+-- LOGIKA UTAMA COMBAT DILINDUNGI PCALL
 -- ============================================================================
 
--- Mendapatkan Part Utama yang valid (Mendukung R6, R15, dan Custom Rig Bot)
-local function GetTargetPart(char)
+function GetTargetPart(char)
     if not char then return nil end
-    return char:FindFirstChild(Config.TargetPart) 
-        or char:FindFirstChild("HumanoidRootPart") 
-        or char:FindFirstChild("Torso") 
+    
+    if Config.TargetPartChoice == "Head" then
+        local head = char:FindFirstChild("Head")
+        if head and head:IsA("BasePart") then return head end
+    end
+    
+    return char:FindFirstChild("HumanoidRootPart")
+        or char:FindFirstChild("Torso")
         or char:FindFirstChild("UpperTorso")
+        or char:FindFirstChild("Head")
 end
 
--- Cek apakah Model merupakan karakter pemain asli
 local function IsPlayerCharacter(char)
     for _, p in ipairs(Players:GetPlayers()) do
         if p.Character == char then
@@ -259,7 +957,20 @@ local function IsPlayerCharacter(char)
     return false, nil
 end
 
--- Validasi apakah musuh (Player atau Bot) valid dan masih hidup
+local function IsSameTeam(player)
+    if not player or player == LocalPlayer then return true end
+    
+    if LocalPlayer.Team ~= nil and player.Team ~= nil then
+        return LocalPlayer.Team == player.Team
+    end
+    
+    if LocalPlayer.TeamColor ~= nil and player.TeamColor ~= nil then
+        return LocalPlayer.TeamColor == player.TeamColor
+    end
+    
+    return false
+end
+
 local function IsValidEnemy(char)
     local success, result = pcall(function()
         if not char or not char.Parent then return false end
@@ -272,7 +983,6 @@ local function IsValidEnemy(char)
     return success and result == true
 end
 
--- Mendapatkan semua musuh (Player + Bot/NPC) dalam jangkauan
 local function GetEnemiesSortedByDistance()
     local enemies = {}
     local checked = {}
@@ -284,15 +994,18 @@ local function GetEnemiesSortedByDistance()
         if not myRoot then return end
         local myPos = myRoot.Position
 
-        -- Helper untuk mendaftarkan kandidat musuh
         local function ConsiderModel(model)
             if not model or not model:IsA("Model") or checked[model] then return end
             checked[model] = true
 
             if model ~= myChar and IsValidEnemy(model) then
                 local isPlayer, playerObj = IsPlayerCharacter(model)
-                local allowed = false
+                
+                if isPlayer and Config.TeamCheck and IsSameTeam(playerObj) then
+                    return
+                end
 
+                local allowed = false
                 if Config.TargetType == "All" then
                     allowed = true
                 elseif Config.TargetType == "NPC" and not isPlayer then
@@ -319,7 +1032,7 @@ local function GetEnemiesSortedByDistance()
             end
         end
 
-        -- 1. Scan Player jika mode mengizinkan
+        -- 1. Scan Player
         if Config.TargetType == "All" or Config.TargetType == "Player" then
             for _, p in ipairs(Players:GetPlayers()) do
                 if p ~= LocalPlayer and p.Character then
@@ -328,13 +1041,12 @@ local function GetEnemiesSortedByDistance()
             end
         end
 
-        -- 2. Scan Bot/NPC di Workspace jika mode mengizinkan
+        -- 2. Scan Bot/NPC di Workspace
         if Config.TargetType == "All" or Config.TargetType == "NPC" then
             for _, child in ipairs(workspace:GetChildren()) do
                 if child:IsA("Model") then
                     ConsiderModel(child)
                 elseif child:IsA("Folder") or child:IsA("Model") then
-                    -- Cek folder-folder umum yang sering dipakai untuk NPC / Mobs
                     local lowerName = string.lower(child.Name)
                     if string.find(lowerName, "npc") or string.find(lowerName, "enemi") 
                        or string.find(lowerName, "mob") or string.find(lowerName, "bot") 
@@ -350,7 +1062,6 @@ local function GetEnemiesSortedByDistance()
             end
         end
 
-        -- Urutkan dari jarak terdekat
         table.sort(enemies, function(a, b)
             return a.Distance < b.Distance
         end)
@@ -359,8 +1070,7 @@ local function GetEnemiesSortedByDistance()
     return enemies
 end
 
--- Cari target terbaik (Jarak 3D atau Layar)
-local function FindBestTarget()
+function FindBestTarget()
     local best = nil
 
     pcall(function()
@@ -393,26 +1103,23 @@ local function FindBestTarget()
     return best
 end
 
--- Pasang target & Aktifkan Hitbox
-local function SetTarget(entry)
+function SetTarget(entry)
     pcall(function()
         if entry and entry.Part and entry.Character and IsValidEnemy(entry.Character) then
             CurrentTargetChar = entry.Character
-            CurrentTargetPart = entry.Part
+            CurrentTargetPart = GetTargetPart(entry.Character)
             CurrentTargetIsNPC = entry.IsNPC
 
-            -- Pasang visual Hitbox pada tubuh dan root part target
             TargetHighlight.Adornee = entry.Character
             TargetHighlight.Parent = entry.Character
 
-            TargetHitboxBox.Adornee = entry.Part
-            TargetHitboxBox.Parent = entry.Part
+            TargetHitboxBox.Adornee = CurrentTargetPart
+            TargetHitboxBox.Parent = CurrentTargetPart
         else
             CurrentTargetChar = nil
             CurrentTargetPart = nil
             CurrentTargetIsNPC = false
 
-            -- Lepas visual Hitbox
             TargetHighlight.Adornee = nil
             TargetHighlight.Parent = nil
 
@@ -422,14 +1129,12 @@ local function SetTarget(entry)
     end)
 end
 
--- Update UI tampilan dengan pcall
 local function UpdateUI()
     pcall(function()
         if not AutoLockEnabled then
-            StatusBadge.Text = "OFF"
-            StatusBadge.BackgroundColor3 = Color3.fromRGB(50, 52, 65)
-            StatusBadge.TextColor3 = Color3.fromRGB(160, 165, 180)
-            MainStroke.Color = Color3.fromRGB(55, 60, 75)
+            StatusVal.Text = "Idle"
+            StatusVal.TextColor3 = Color3.fromRGB(160, 165, 180)
+            DotIndicator.BackgroundColor3 = Color3.fromRGB(120, 130, 150)
 
             ToggleButton.Text = "NYALAKAN (Q)"
             ToggleButton.BackgroundColor3 = Color3.fromRGB(0, 135, 240)
@@ -444,13 +1149,13 @@ local function UpdateUI()
         ToggleButton.BackgroundColor3 = Color3.fromRGB(220, 45, 65)
 
         if CurrentTargetChar and IsValidEnemy(CurrentTargetChar) and CurrentTargetPart then
-            StatusBadge.Text = "LOCKED"
-            StatusBadge.BackgroundColor3 = Color3.fromRGB(230, 45, 70)
-            StatusBadge.TextColor3 = Color3.fromRGB(255, 255, 255)
-            MainStroke.Color = Color3.fromRGB(230, 45, 70)
+            StatusVal.Text = "Locked"
+            StatusVal.TextColor3 = Color3.fromRGB(255, 60, 80)
+            DotIndicator.BackgroundColor3 = Color3.fromRGB(255, 60, 80)
 
             local tag = CurrentTargetIsNPC and "[BOT] " or "[PLAYER] "
-            TargetNameLabel.Text = tag .. tostring(CurrentTargetChar.Name)
+            local partTag = Config.TargetPartChoice == "Head" and " (HEAD)" or " (TORSO)"
+            TargetNameLabel.Text = tag .. tostring(CurrentTargetChar.Name) .. partTag
 
             local hum = CurrentTargetChar:FindFirstChildOfClass("Humanoid")
             local myChar = LocalPlayer.Character
@@ -471,10 +1176,9 @@ local function UpdateUI()
                 end
             end
         else
-            StatusBadge.Text = "MENCARI..."
-            StatusBadge.BackgroundColor3 = Color3.fromRGB(220, 150, 30)
-            StatusBadge.TextColor3 = Color3.fromRGB(255, 255, 255)
-            MainStroke.Color = Color3.fromRGB(220, 150, 30)
+            StatusVal.Text = "Searching"
+            StatusVal.TextColor3 = Color3.fromRGB(220, 160, 30)
+            DotIndicator.BackgroundColor3 = Color3.fromRGB(220, 160, 30)
 
             TargetNameLabel.Text = "Status: Mencari target terdekat..."
             DistanceLabel.Text = "Jarak: Menunggu musuh..."
@@ -483,7 +1187,6 @@ local function UpdateUI()
     end)
 end
 
--- Toggle ON / OFF Utama
 local function ToggleAutoLock()
     pcall(function()
         AutoLockEnabled = not AutoLockEnabled
@@ -499,7 +1202,6 @@ local function ToggleAutoLock()
     end)
 end
 
--- Switch manual ke musuh berikutnya
 local function SwitchTarget()
     pcall(function()
         if not AutoLockEnabled then return end
@@ -520,7 +1222,7 @@ local function SwitchTarget()
     end)
 end
 
--- Event Listener UI & Input (Diproteksi pcall)
+-- Event Listeners (Tombol UI)
 ToggleButton.MouseButton1Click:Connect(function()
     pcall(ToggleAutoLock)
 end)
@@ -529,42 +1231,7 @@ SwitchButton.MouseButton1Click:Connect(function()
     pcall(SwitchTarget)
 end)
 
-ModeButton.MouseButton1Click:Connect(function()
-    pcall(function()
-        if Config.LockMode == "Distance" then
-            Config.LockMode = "Cursor"
-            ModeButton.Text = "Mode: Kursor / Layar [2D]"
-        else
-            Config.LockMode = "Distance"
-            ModeButton.Text = "Mode: Jarak Fisik Terdekat [3D]"
-        end
-    end)
-end)
-
-TargetTypeButton.MouseButton1Click:Connect(function()
-    pcall(function()
-        if Config.TargetType == "All" then
-            Config.TargetType = "NPC"
-            TargetTypeButton.Text = "Target: Hanya Bot / NPC"
-            TargetTypeButton.TextColor3 = Color3.fromRGB(255, 175, 50)
-        elseif Config.TargetType == "NPC" then
-            Config.TargetType = "Player"
-            TargetTypeButton.Text = "Target: Hanya Player"
-            TargetTypeButton.TextColor3 = Color3.fromRGB(255, 100, 120)
-        else
-            Config.TargetType == "All"
-            TargetTypeButton.Text = "Target: Player + Bot / NPC"
-            TargetTypeButton.TextColor3 = Color3.fromRGB(80, 210, 255)
-        end
-
-        -- Refresh target jika sedang aktif
-        if AutoLockEnabled then
-            local best = FindBestTarget()
-            SetTarget(best)
-        end
-    end)
-end)
-
+-- Keyboard Event
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
     pcall(function()
@@ -572,11 +1239,14 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
             ToggleAutoLock()
         elseif input.KeyCode == Config.SwitchKey then
             SwitchTarget()
+        elseif input.KeyCode == Config.ToggleUIKey then
+            MainFrame.Visible = not MainFrame.Visible
+            CollapsedBar.Visible = false
         end
     end)
 end)
 
--- Loop Utama RenderStepped (100% aman pcall)
+-- Loop Utama RenderStepped
 RunService.RenderStepped:Connect(function(dt)
     pcall(function()
         UpdateUI()
@@ -587,25 +1257,40 @@ RunService.RenderStepped:Connect(function(dt)
         local myRoot = GetTargetPart(myChar)
         if not myRoot then return end
 
-        -- Evaluasi Target:
-        local targetNeedsRefresh = false
+        -- Evaluasi Pergantian Target
+        if Config.TargetSwitchMode == "Dynamic" then
+            local bestTarget = FindBestTarget()
 
-        if not CurrentTargetChar or not CurrentTargetPart or not IsValidEnemy(CurrentTargetChar) then
-            targetNeedsRefresh = true
+            if not CurrentTargetChar or not CurrentTargetPart or not IsValidEnemy(CurrentTargetChar) then
+                SetTarget(bestTarget)
+            else
+                local curDist = (CurrentTargetPart.Position - myRoot.Position).Magnitude
+                if curDist > Config.BreakDistance then
+                    SetTarget(bestTarget)
+                elseif bestTarget and bestTarget.Character ~= CurrentTargetChar then
+                    local newDist = (bestTarget.Part.Position - myRoot.Position).Magnitude
+                    if newDist < (curDist - Config.SwitchDistanceMargin) then
+                        SetTarget(bestTarget)
+                    end
+                end
+            end
         else
-            local distance = (CurrentTargetPart.Position - myRoot.Position).Magnitude
-            if distance > Config.BreakDistance then
-                targetNeedsRefresh = true
+            if not CurrentTargetChar or not CurrentTargetPart or not IsValidEnemy(CurrentTargetChar) then
+                local bestTarget = FindBestTarget()
+                SetTarget(bestTarget)
+            else
+                local curDist = (CurrentTargetPart.Position - myRoot.Position).Magnitude
+                if curDist > Config.BreakDistance then
+                    local bestTarget = FindBestTarget()
+                    SetTarget(bestTarget)
+                end
             end
         end
 
-        -- Otomatis cari dan kunci musuh/bot terdekat berikutnya
-        if targetNeedsRefresh then
-            local newTarget = FindBestTarget()
-            SetTarget(newTarget)
+        if CurrentTargetChar and IsValidEnemy(CurrentTargetChar) then
+            CurrentTargetPart = GetTargetPart(CurrentTargetChar)
         end
 
-        -- Eksekusi tracking kamera dan hadap karakter
         if CurrentTargetPart and CurrentTargetChar and IsValidEnemy(CurrentTargetChar) then
             -- 1. Camera Tracking
             local camPos = Camera.CFrame.Position
@@ -628,8 +1313,4 @@ RunService.RenderStepped:Connect(function(dt)
     end)
 end)
 
-return {
-    Config = Config,
-    ToggleAutoLock = ToggleAutoLock,
-    SwitchTarget = SwitchTarget
-}
+print("[FeathHub] Loaded! UI baru bergaya Pithers Hub siap digunakan.")
