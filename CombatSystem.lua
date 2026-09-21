@@ -35,7 +35,19 @@ local Config = {
     
     ToggleKey = Enum.KeyCode.Q,
     SwitchKey = Enum.KeyCode.Tab,
-    ToggleUIKey = Enum.KeyCode.RightShift
+    ToggleUIKey = Enum.KeyCode.RightShift,
+
+    -- Konfigurasi ESP Billboard
+    ESPEnabled = false,
+    ESPTargetFilter = "All",       -- "All", "Player", "Bot", "Entity"
+    ESPShowName = true,
+    ESPShowDistance = true,
+    ESPShowHealth = true,
+    ESPTextSize = 13,
+    ESPPlayerColor = Color3.fromRGB(0, 255, 140),
+    ESPNPCColor = Color3.fromRGB(255, 60, 60),
+    ESPEntityColor = Color3.fromRGB(255, 170, 0),
+    ESPMaxDistance = 1000
 }
 
 Config.BreakDistance = Config.MaxLockDistance + 20
@@ -45,6 +57,10 @@ local AutoLockEnabled = false
 local CurrentTargetPart = nil
 local CurrentTargetChar = nil
 local CurrentTargetIsNPC = false
+
+-- Forward declaration fungsi ESP
+local RefreshESP = nil
+local ClearAllESP = nil
 
 -- ============================================================================
 -- PENGATURAN PARENT GUI AMAN
@@ -74,6 +90,11 @@ pcall(function()
     if oldHighlight then oldHighlight:Destroy() end
     local oldBox = game:FindFirstChild("CombatTargetHitboxBox", true)
     if oldBox then oldBox:Destroy() end
+    for _, v in ipairs(workspace:GetDescendants()) do
+        if v.Name == "ESP_Billboard" and v:IsA("BillboardGui") then
+            v:Destroy()
+        end
+    end
 end)
 
 -- ============================================================================
@@ -362,6 +383,37 @@ TopDivider.BackgroundColor3 = Color3.fromRGB(30, 35, 48)
 TopDivider.BorderSizePixel = 0
 TopDivider.Parent = MainFrame
 
+-- Dragging MainFrame (Mouse & Touch di Delta Mobile)
+local isMainDragging = false
+local mainDragStart = nil
+local mainStartPos = nil
+
+TopBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        isMainDragging = true
+        mainDragStart = input.Position
+        mainStartPos = MainFrame.Position
+
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                isMainDragging = false
+            end
+        end)
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if isMainDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local delta = input.Position - mainDragStart
+        MainFrame.Position = UDim2.new(
+            mainStartPos.X.Scale,
+            mainStartPos.X.Offset + delta.X,
+            mainStartPos.Y.Scale,
+            mainStartPos.Y.Offset + delta.Y
+        )
+    end
+end)
+
 -- Logika Minimize & Restore
 MinBtn.MouseButton1Click:Connect(function()
     MainFrame.Visible = false
@@ -498,6 +550,7 @@ local TabList = {
 }
 
 local function SwitchTab(tabName)
+    if CloseAllDropdowns then CloseAllDropdowns() end
     for name, f in pairs(Tabs) do
         f.Visible = (name == tabName)
     end
@@ -546,214 +599,11 @@ end
 SwitchTab("Player")
 
 -- ============================================================================
--- 1. ISI TAB MAIN (DEVELOPER PROFILE / CREATED BY FEATH)
--- ============================================================================
-local ProfileCard = Instance.new("Frame")
-ProfileCard.Size = UDim2.new(1, -28, 0, 100)
-ProfileCard.Position = UDim2.new(0, 14, 0, 14)
-ProfileCard.BackgroundColor3 = Color3.fromRGB(20, 24, 34)
-ProfileCard.BorderSizePixel = 0
-ProfileCard.Parent = MainTab
-
-local ProfCorner = Instance.new("UICorner")
-ProfCorner.CornerRadius = UDim.new(0, 8)
-ProfCorner.Parent = ProfileCard
-
-local ProfStroke = Instance.new("UIStroke")
-ProfStroke.Thickness = 1
-ProfStroke.Color = Color3.fromRGB(45, 55, 80)
-ProfStroke.Parent = ProfileCard
-
-local AvatarCircle = Instance.new("ImageLabel")
-AvatarCircle.Size = UDim2.new(0, 54, 0, 54)
-AvatarCircle.Position = UDim2.new(0, 16, 0.5, -27)
-AvatarCircle.BackgroundColor3 = Color3.fromRGB(28, 35, 52)
-AvatarCircle.Image = "rbxassetid://10903333338" -- Default stylish icon avatar
-AvatarCircle.BorderSizePixel = 0
-AvatarCircle.Parent = ProfileCard
-
-local AvCorner = Instance.new("UICorner")
-AvCorner.CornerRadius = UDim.new(1, 0)
-AvCorner.Parent = AvatarCircle
-
-local DevName = Instance.new("TextLabel")
-DevName.Size = UDim2.new(0, 200, 0, 20)
-DevName.Position = UDim2.new(0, 82, 0, 22)
-DevName.BackgroundTransparency = 1
-DevName.Text = "Created by feath"
-DevName.TextColor3 = Color3.fromRGB(255, 255, 255)
-DevName.Font = Enum.Font.GothamBold
-DevName.TextSize = 14
-DevName.TextXAlignment = Enum.TextXAlignment.Left
-DevName.Parent = ProfileCard
-
-local DevRole = Instance.new("TextLabel")
-DevRole.Size = UDim2.new(0, 200, 0, 16)
-DevRole.Position = UDim2.new(0, 82, 0, 44)
-DevRole.BackgroundTransparency = 1
-DevRole.Text = "Developer • Combat System Suite"
-DevRole.TextColor3 = Color3.fromRGB(80, 210, 255)
-DevRole.Font = Enum.Font.GothamMedium
-DevRole.TextSize = 11
-DevRole.TextXAlignment = Enum.TextXAlignment.Left
-DevRole.Parent = ProfileCard
-
-local DevBadge = Instance.new("TextLabel")
-DevBadge.Size = UDim2.new(0, 75, 0, 18)
-DevBadge.Position = UDim2.new(0, 82, 0, 64)
-DevBadge.BackgroundColor3 = Color3.fromRGB(30, 42, 68)
-DevBadge.Text = "VERIFIED DEV"
-DevBadge.TextColor3 = Color3.fromRGB(120, 180, 255)
-DevBadge.Font = Enum.Font.GothamBold
-DevBadge.TextSize = 9
-DevBadge.Parent = ProfileCard
-
-local DevBadgeCorner = Instance.new("UICorner")
-DevBadgeCorner.CornerRadius = UDim.new(0, 4)
-DevBadgeCorner.Parent = DevBadge
-
--- Info Tambahan di Tab Main
-local HubInfo = Instance.new("TextLabel")
-HubInfo.Size = UDim2.new(1, -28, 0, 40)
-HubInfo.Position = UDim2.new(0, 14, 0, 126)
-HubInfo.BackgroundTransparency = 1
-HubInfo.Text = "Selamat datang di Feath Hub. Buka tab 'Player' untuk mengontrol sistem Auto-Lock Combat, pengaturan jarak, dan opsi penargetan."
-HubInfo.TextColor3 = Color3.fromRGB(150, 155, 170)
-HubInfo.Font = Enum.Font.Gotham
-HubInfo.TextSize = 11
-HubInfo.TextWrapped = true
-HubInfo.TextXAlignment = Enum.TextXAlignment.Left
-HubInfo.Parent = MainTab
-
--- ============================================================================
--- 2. ISI TAB VISUAL & SETTINGS (DIKOSONGKAN SESUAI INSTRUKSI)
--- ============================================================================
-local EmptyVisualLabel = Instance.new("TextLabel")
-EmptyVisualLabel.Size = UDim2.new(1, 0, 1, 0)
-EmptyVisualLabel.BackgroundTransparency = 1
-EmptyVisualLabel.Text = "Belum ada konfigurasi di tab ini."
-EmptyVisualLabel.TextColor3 = Color3.fromRGB(100, 105, 120)
-EmptyVisualLabel.Font = Enum.Font.GothamMedium
-EmptyVisualLabel.TextSize = 12
-EmptyVisualLabel.Parent = VisualTab
-
-local EmptySettingsLabel = Instance.new("TextLabel")
-EmptySettingsLabel.Size = UDim2.new(1, 0, 1, 0)
-EmptySettingsLabel.BackgroundTransparency = 1
-EmptySettingsLabel.Text = "Pengaturan Umum (Kosong)."
-EmptySettingsLabel.TextColor3 = Color3.fromRGB(100, 105, 120)
-EmptySettingsLabel.Font = Enum.Font.GothamMedium
-EmptySettingsLabel.TextSize = 12
-EmptySettingsLabel.Parent = SettingsTab
-
--- ============================================================================
--- 3. ISI TAB PLAYER (SELURUH FUNGSI COMBAT LAMA DITEMPATKAN DI SINI)
--- ============================================================================
-
--- Section Title
-local SectionTitle = Instance.new("TextLabel")
-SectionTitle.Size = UDim2.new(1, -28, 0, 18)
-SectionTitle.Position = UDim2.new(0, 14, 0, 10)
-SectionTitle.BackgroundTransparency = 1
-SectionTitle.Text = "COMBAT AUTO-LOCK CONTROLS"
-SectionTitle.TextColor3 = Color3.fromRGB(120, 130, 150)
-SectionTitle.Font = Enum.Font.GothamBold
-SectionTitle.TextSize = 10
-SectionTitle.TextXAlignment = Enum.TextXAlignment.Left
-SectionTitle.Parent = PlayerTab
-
--- Target Info Card (Nama, Jarak, HP Bar)
-local InfoCard = Instance.new("Frame")
-InfoCard.Size = UDim2.new(1, -28, 0, 54)
-InfoCard.Position = UDim2.new(0, 14, 0, 32)
-InfoCard.BackgroundColor3 = Color3.fromRGB(18, 21, 29)
-InfoCard.BorderSizePixel = 0
-InfoCard.Parent = PlayerTab
-
-local InfoCorner = Instance.new("UICorner")
-InfoCorner.CornerRadius = UDim.new(0, 6)
-InfoCorner.Parent = InfoCard
-
-local TargetNameLabel = Instance.new("TextLabel")
-TargetNameLabel.Size = UDim2.new(1, -12, 0, 16)
-TargetNameLabel.Position = UDim2.new(0, 8, 0, 5)
-TargetNameLabel.BackgroundTransparency = 1
-TargetNameLabel.Text = "Status: Fitur Nonaktif"
-TargetNameLabel.TextColor3 = Color3.fromRGB(190, 195, 205)
-TargetNameLabel.Font = Enum.Font.GothamMedium
-TargetNameLabel.TextSize = 11
-TargetNameLabel.TextXAlignment = Enum.TextXAlignment.Left
-TargetNameLabel.Parent = InfoCard
-
-local DistanceLabel = Instance.new("TextLabel")
-DistanceLabel.Size = UDim2.new(1, -12, 0, 14)
-DistanceLabel.Position = UDim2.new(0, 8, 0, 21)
-DistanceLabel.BackgroundTransparency = 1
-DistanceLabel.Text = "Jarak: --"
-DistanceLabel.TextColor3 = Color3.fromRGB(130, 135, 150)
-DistanceLabel.Font = Enum.Font.Gotham
-DistanceLabel.TextSize = 10
-DistanceLabel.TextXAlignment = Enum.TextXAlignment.Left
-DistanceLabel.Parent = InfoCard
-
-local HealthBarBg = Instance.new("Frame")
-HealthBarBg.Size = UDim2.new(1, -16, 0, 5)
-HealthBarBg.Position = UDim2.new(0, 8, 0, 40)
-HealthBarBg.BackgroundColor3 = Color3.fromRGB(30, 34, 44)
-HealthBarBg.BorderSizePixel = 0
-HealthBarBg.Parent = InfoCard
-
-local HealthBarCorner = Instance.new("UICorner")
-HealthBarCorner.CornerRadius = UDim.new(1, 0)
-HealthBarCorner.Parent = HealthBarBg
-
-local HealthBarFill = Instance.new("Frame")
-HealthBarFill.Size = UDim2.new(0, 0, 1, 0)
-HealthBarFill.BackgroundColor3 = Color3.fromRGB(50, 205, 120)
-HealthBarFill.BorderSizePixel = 0
-HealthBarFill.Parent = HealthBarBg
-
-local HealthBarFillCorner = Instance.new("UICorner")
-HealthBarFillCorner.CornerRadius = UDim.new(1, 0)
-HealthBarFillCorner.Parent = HealthBarFill
-
--- Tombol Toggle ON/OFF Utama & Switch Target
-local ToggleButton = Instance.new("TextButton")
-ToggleButton.Size = UDim2.new(0.68, -6, 0, 30)
-ToggleButton.Position = UDim2.new(0, 14, 0, 94)
-ToggleButton.BackgroundColor3 = Color3.fromRGB(0, 135, 240)
-ToggleButton.Text = "NYALAKAN (Q)"
-ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-ToggleButton.Font = Enum.Font.GothamBold
-ToggleButton.TextSize = 11
-ToggleButton.BorderSizePixel = 0
-ToggleButton.Parent = PlayerTab
-
-local ToggleBtnCorner = Instance.new("UICorner")
-ToggleBtnCorner.CornerRadius = UDim.new(0, 6)
-ToggleBtnCorner.Parent = ToggleButton
-
-local SwitchButton = Instance.new("TextButton")
-SwitchButton.Size = UDim2.new(0.32, -22, 0, 30)
-SwitchButton.Position = UDim2.new(0.68, 14, 0, 94)
-SwitchButton.BackgroundColor3 = Color3.fromRGB(35, 40, 52)
-SwitchButton.Text = "NEXT (TAB)"
-SwitchButton.TextColor3 = Color3.fromRGB(220, 220, 220)
-SwitchButton.Font = Enum.Font.GothamBold
-SwitchButton.TextSize = 10
-SwitchButton.BorderSizePixel = 0
-SwitchButton.Parent = PlayerTab
-
-local SwitchBtnCorner = Instance.new("UICorner")
-SwitchBtnCorner.CornerRadius = UDim.new(0, 6)
-SwitchBtnCorner.Parent = SwitchButton
-
--- ============================================================================
--- DROPDOWN SYSTEM UNTUK TAB PLAYER
+-- DROPDOWN SYSTEM REUSABLE (UNTUK SEMUA TAB)
 -- ============================================================================
 local activeDropdownList = nil
 
-local function CloseAllDropdowns()
+function CloseAllDropdowns()
     if activeDropdownList then
         activeDropdownList.Visible = false
         activeDropdownList = nil
@@ -879,6 +729,321 @@ local function CreateDropdown(parent, labelText, yPos, options, defaultKey, zInd
 
     return dButton
 end
+
+-- ============================================================================
+-- 1. ISI TAB MAIN (DEVELOPER PROFILE / CREATED BY FEATH)
+-- ============================================================================
+local ProfileCard = Instance.new("Frame")
+ProfileCard.Size = UDim2.new(1, -28, 0, 100)
+ProfileCard.Position = UDim2.new(0, 14, 0, 14)
+ProfileCard.BackgroundColor3 = Color3.fromRGB(20, 24, 34)
+ProfileCard.BorderSizePixel = 0
+ProfileCard.Parent = MainTab
+
+local ProfCorner = Instance.new("UICorner")
+ProfCorner.CornerRadius = UDim.new(0, 8)
+ProfCorner.Parent = ProfileCard
+
+local ProfStroke = Instance.new("UIStroke")
+ProfStroke.Thickness = 1
+ProfStroke.Color = Color3.fromRGB(45, 55, 80)
+ProfStroke.Parent = ProfileCard
+
+local AvatarCircle = Instance.new("ImageLabel")
+AvatarCircle.Size = UDim2.new(0, 54, 0, 54)
+AvatarCircle.Position = UDim2.new(0, 16, 0.5, -27)
+AvatarCircle.BackgroundColor3 = Color3.fromRGB(28, 35, 52)
+AvatarCircle.Image = "rbxassetid://10903333338" -- Default stylish icon avatar
+AvatarCircle.BorderSizePixel = 0
+AvatarCircle.Parent = ProfileCard
+
+local AvCorner = Instance.new("UICorner")
+AvCorner.CornerRadius = UDim.new(1, 0)
+AvCorner.Parent = AvatarCircle
+
+local DevName = Instance.new("TextLabel")
+DevName.Size = UDim2.new(0, 200, 0, 20)
+DevName.Position = UDim2.new(0, 82, 0, 22)
+DevName.BackgroundTransparency = 1
+DevName.Text = "Created by feath"
+DevName.TextColor3 = Color3.fromRGB(255, 255, 255)
+DevName.Font = Enum.Font.GothamBold
+DevName.TextSize = 14
+DevName.TextXAlignment = Enum.TextXAlignment.Left
+DevName.Parent = ProfileCard
+
+local DevRole = Instance.new("TextLabel")
+DevRole.Size = UDim2.new(0, 200, 0, 16)
+DevRole.Position = UDim2.new(0, 82, 0, 44)
+DevRole.BackgroundTransparency = 1
+DevRole.Text = "Developer • Combat System Suite"
+DevRole.TextColor3 = Color3.fromRGB(80, 210, 255)
+DevRole.Font = Enum.Font.GothamMedium
+DevRole.TextSize = 11
+DevRole.TextXAlignment = Enum.TextXAlignment.Left
+DevRole.Parent = ProfileCard
+
+local DevBadge = Instance.new("TextLabel")
+DevBadge.Size = UDim2.new(0, 75, 0, 18)
+DevBadge.Position = UDim2.new(0, 82, 0, 64)
+DevBadge.BackgroundColor3 = Color3.fromRGB(30, 42, 68)
+DevBadge.Text = "VERIFIED DEV"
+DevBadge.TextColor3 = Color3.fromRGB(120, 180, 255)
+DevBadge.Font = Enum.Font.GothamBold
+DevBadge.TextSize = 9
+DevBadge.Parent = ProfileCard
+
+local DevBadgeCorner = Instance.new("UICorner")
+DevBadgeCorner.CornerRadius = UDim.new(0, 4)
+DevBadgeCorner.Parent = DevBadge
+
+-- Info Tambahan di Tab Main
+local HubInfo = Instance.new("TextLabel")
+HubInfo.Size = UDim2.new(1, -28, 0, 40)
+HubInfo.Position = UDim2.new(0, 14, 0, 126)
+HubInfo.BackgroundTransparency = 1
+HubInfo.Text = "Selamat datang di Feath Hub. Buka tab 'Player' untuk mengontrol sistem Auto-Lock Combat, pengaturan jarak, dan opsi penargetan."
+HubInfo.TextColor3 = Color3.fromRGB(150, 155, 170)
+HubInfo.Font = Enum.Font.Gotham
+HubInfo.TextSize = 11
+HubInfo.TextWrapped = true
+HubInfo.TextXAlignment = Enum.TextXAlignment.Left
+HubInfo.Parent = MainTab
+
+-- ============================================================================
+-- 2. ISI TAB VISUAL (ESP BILLBOARD & TARGET FILTER)
+-- ============================================================================
+VisualTab.CanvasSize = UDim2.new(0, 0, 0, 260)
+
+local VisualSectionTitle = Instance.new("TextLabel")
+VisualSectionTitle.Size = UDim2.new(1, -28, 0, 18)
+VisualSectionTitle.Position = UDim2.new(0, 14, 0, 10)
+VisualSectionTitle.BackgroundTransparency = 1
+VisualSectionTitle.Text = "ESP BILLBOARD SETTINGS"
+VisualSectionTitle.TextColor3 = Color3.fromRGB(120, 130, 150)
+VisualSectionTitle.Font = Enum.Font.GothamBold
+VisualSectionTitle.TextSize = 10
+VisualSectionTitle.TextXAlignment = Enum.TextXAlignment.Left
+VisualSectionTitle.Parent = VisualTab
+
+-- Dropdown di atas tombol: Pilih Target (Player, Bot, Entity, Semua)
+CreateDropdown(VisualTab, "TARGET ESP FILTER:", 32, {
+    { Name = "Semua (Player, Bot, Entity)", Value = "All" },
+    { Name = "Player Saja", Value = "Player" },
+    { Name = "Bot / NPC Saja", Value = "Bot" },
+    { Name = "Entity Saja", Value = "Entity" }
+}, Config.ESPTargetFilter, 25, function(val)
+    Config.ESPTargetFilter = val
+    if Config.ESPEnabled and RefreshESP then
+        RefreshESP()
+    end
+end)
+
+-- Tombol Trigger ESP (Di Bawah Dropdown)
+local ESPToggleBtn = Instance.new("TextButton")
+ESPToggleBtn.Size = UDim2.new(1, -28, 0, 32)
+ESPToggleBtn.Position = UDim2.new(0, 14, 0, 86)
+ESPToggleBtn.BackgroundColor3 = Color3.fromRGB(35, 40, 52)
+ESPToggleBtn.Text = "AKTIFKAN ESP (OFF)"
+ESPToggleBtn.TextColor3 = Color3.fromRGB(220, 225, 235)
+ESPToggleBtn.Font = Enum.Font.GothamBold
+ESPToggleBtn.TextSize = 11
+ESPToggleBtn.BorderSizePixel = 0
+ESPToggleBtn.ZIndex = 2
+ESPToggleBtn.Parent = VisualTab
+
+local ESPToggleCorner = Instance.new("UICorner")
+ESPToggleCorner.CornerRadius = UDim.new(0, 6)
+ESPToggleCorner.Parent = ESPToggleBtn
+
+local ESPToggleStroke = Instance.new("UIStroke")
+ESPToggleStroke.Thickness = 1
+ESPToggleStroke.Color = Color3.fromRGB(50, 58, 76)
+ESPToggleStroke.Parent = ESPToggleBtn
+
+ESPToggleBtn.MouseButton1Click:Connect(function()
+    Config.ESPEnabled = not Config.ESPEnabled
+    if Config.ESPEnabled then
+        ESPToggleBtn.Text = "MATIKAN ESP (ON)"
+        ESPToggleBtn.BackgroundColor3 = Color3.fromRGB(0, 180, 120)
+        ESPToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        ESPToggleStroke.Color = Color3.fromRGB(0, 220, 150)
+        if RefreshESP then RefreshESP() end
+    else
+        ESPToggleBtn.Text = "AKTIFKAN ESP (OFF)"
+        ESPToggleBtn.BackgroundColor3 = Color3.fromRGB(35, 40, 52)
+        ESPToggleBtn.TextColor3 = Color3.fromRGB(220, 225, 235)
+        ESPToggleStroke.Color = Color3.fromRGB(50, 58, 76)
+        if ClearAllESP then ClearAllESP() end
+    end
+end)
+
+-- Elemen Tampilan ESP (Health, Jarak, Nama)
+local DispTitle = Instance.new("TextLabel")
+DispTitle.Size = UDim2.new(1, -28, 0, 16)
+DispTitle.Position = UDim2.new(0, 14, 0, 128)
+DispTitle.BackgroundTransparency = 1
+DispTitle.Text = "ELEMEN TAMPILAN ESP:"
+DispTitle.TextColor3 = Color3.fromRGB(120, 130, 150)
+DispTitle.Font = Enum.Font.GothamBold
+DispTitle.TextSize = 10
+DispTitle.TextXAlignment = Enum.TextXAlignment.Left
+DispTitle.Parent = VisualTab
+
+local function CreateESPDisplayToggle(yPos, labelText, configKey)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, -28, 0, 24)
+    btn.Position = UDim2.new(0, 14, 0, yPos)
+    btn.BackgroundColor3 = Config[configKey] and Color3.fromRGB(24, 38, 55) or Color3.fromRGB(22, 25, 33)
+    btn.Text = "  " .. labelText .. ": " .. (Config[configKey] and "ON" or "OFF")
+    btn.TextColor3 = Config[configKey] and Color3.fromRGB(80, 210, 255) or Color3.fromRGB(140, 145, 160)
+    btn.Font = Enum.Font.GothamMedium
+    btn.TextSize = 10
+    btn.TextXAlignment = Enum.TextXAlignment.Left
+    btn.BorderSizePixel = 0
+    btn.Parent = VisualTab
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 6)
+    corner.Parent = btn
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Thickness = 1
+    stroke.Color = Config[configKey] and Color3.fromRGB(0, 120, 255) or Color3.fromRGB(40, 45, 60)
+    stroke.Parent = btn
+
+    btn.MouseButton1Click:Connect(function()
+        Config[configKey] = not Config[configKey]
+        btn.Text = "  " .. labelText .. ": " .. (Config[configKey] and "ON" or "OFF")
+        btn.BackgroundColor3 = Config[configKey] and Color3.fromRGB(24, 38, 55) or Color3.fromRGB(22, 25, 33)
+        btn.TextColor3 = Config[configKey] and Color3.fromRGB(80, 210, 255) or Color3.fromRGB(140, 145, 160)
+        stroke.Color = Config[configKey] and Color3.fromRGB(0, 120, 255) or Color3.fromRGB(40, 45, 60)
+        if Config.ESPEnabled and RefreshESP then
+            RefreshESP()
+        end
+    end)
+    return btn
+end
+
+CreateESPDisplayToggle(148, "Health Bar & Status", "ESPShowHealth")
+CreateESPDisplayToggle(178, "Jarak / Distance Label", "ESPShowDistance")
+CreateESPDisplayToggle(208, "Nama Target & Role", "ESPShowName")
+
+local EmptySettingsLabel = Instance.new("TextLabel")
+EmptySettingsLabel.Size = UDim2.new(1, 0, 1, 0)
+EmptySettingsLabel.BackgroundTransparency = 1
+EmptySettingsLabel.Text = "Pengaturan Umum (Kosong)."
+EmptySettingsLabel.TextColor3 = Color3.fromRGB(100, 105, 120)
+EmptySettingsLabel.Font = Enum.Font.GothamMedium
+EmptySettingsLabel.TextSize = 12
+EmptySettingsLabel.Parent = SettingsTab
+
+-- ============================================================================
+-- 3. ISI TAB PLAYER (SELURUH FUNGSI COMBAT LAMA DITEMPATKAN DI SINI)
+-- ============================================================================
+
+-- Section Title
+local SectionTitle = Instance.new("TextLabel")
+SectionTitle.Size = UDim2.new(1, -28, 0, 18)
+SectionTitle.Position = UDim2.new(0, 14, 0, 10)
+SectionTitle.BackgroundTransparency = 1
+SectionTitle.Text = "COMBAT AUTO-LOCK CONTROLS"
+SectionTitle.TextColor3 = Color3.fromRGB(120, 130, 150)
+SectionTitle.Font = Enum.Font.GothamBold
+SectionTitle.TextSize = 10
+SectionTitle.TextXAlignment = Enum.TextXAlignment.Left
+SectionTitle.Parent = PlayerTab
+
+-- Target Info Card (Nama, Jarak, HP Bar)
+local InfoCard = Instance.new("Frame")
+InfoCard.Size = UDim2.new(1, -28, 0, 54)
+InfoCard.Position = UDim2.new(0, 14, 0, 32)
+InfoCard.BackgroundColor3 = Color3.fromRGB(18, 21, 29)
+InfoCard.BorderSizePixel = 0
+InfoCard.Parent = PlayerTab
+
+local InfoCorner = Instance.new("UICorner")
+InfoCorner.CornerRadius = UDim.new(0, 6)
+InfoCorner.Parent = InfoCard
+
+local TargetNameLabel = Instance.new("TextLabel")
+TargetNameLabel.Size = UDim2.new(1, -12, 0, 16)
+TargetNameLabel.Position = UDim2.new(0, 8, 0, 5)
+TargetNameLabel.BackgroundTransparency = 1
+TargetNameLabel.Text = "Status: Fitur Nonaktif"
+TargetNameLabel.TextColor3 = Color3.fromRGB(190, 195, 205)
+TargetNameLabel.Font = Enum.Font.GothamMedium
+TargetNameLabel.TextSize = 11
+TargetNameLabel.TextXAlignment = Enum.TextXAlignment.Left
+TargetNameLabel.Parent = InfoCard
+
+local DistanceLabel = Instance.new("TextLabel")
+DistanceLabel.Size = UDim2.new(1, -12, 0, 14)
+DistanceLabel.Position = UDim2.new(0, 8, 0, 21)
+DistanceLabel.BackgroundTransparency = 1
+DistanceLabel.Text = "Jarak: --"
+DistanceLabel.TextColor3 = Color3.fromRGB(130, 135, 150)
+DistanceLabel.Font = Enum.Font.Gotham
+DistanceLabel.TextSize = 10
+DistanceLabel.TextXAlignment = Enum.TextXAlignment.Left
+DistanceLabel.Parent = InfoCard
+
+local HealthBarBg = Instance.new("Frame")
+HealthBarBg.Size = UDim2.new(1, -16, 0, 5)
+HealthBarBg.Position = UDim2.new(0, 8, 0, 40)
+HealthBarBg.BackgroundColor3 = Color3.fromRGB(30, 34, 44)
+HealthBarBg.BorderSizePixel = 0
+HealthBarBg.Parent = InfoCard
+
+local HealthBarCorner = Instance.new("UICorner")
+HealthBarCorner.CornerRadius = UDim.new(1, 0)
+HealthBarCorner.Parent = HealthBarBg
+
+local HealthBarFill = Instance.new("Frame")
+HealthBarFill.Size = UDim2.new(0, 0, 1, 0)
+HealthBarFill.BackgroundColor3 = Color3.fromRGB(50, 205, 120)
+HealthBarFill.BorderSizePixel = 0
+HealthBarFill.Parent = HealthBarBg
+
+local HealthBarFillCorner = Instance.new("UICorner")
+HealthBarFillCorner.CornerRadius = UDim.new(1, 0)
+HealthBarFillCorner.Parent = HealthBarFill
+
+-- Tombol Toggle ON/OFF Utama & Switch Target
+local ToggleButton = Instance.new("TextButton")
+ToggleButton.Size = UDim2.new(0.68, -6, 0, 30)
+ToggleButton.Position = UDim2.new(0, 14, 0, 94)
+ToggleButton.BackgroundColor3 = Color3.fromRGB(0, 135, 240)
+ToggleButton.Text = "NYALAKAN (Q)"
+ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+ToggleButton.Font = Enum.Font.GothamBold
+ToggleButton.TextSize = 11
+ToggleButton.BorderSizePixel = 0
+ToggleButton.Parent = PlayerTab
+
+local ToggleBtnCorner = Instance.new("UICorner")
+ToggleBtnCorner.CornerRadius = UDim.new(0, 6)
+ToggleBtnCorner.Parent = ToggleButton
+
+local SwitchButton = Instance.new("TextButton")
+SwitchButton.Size = UDim2.new(0.32, -22, 0, 30)
+SwitchButton.Position = UDim2.new(0.68, 14, 0, 94)
+SwitchButton.BackgroundColor3 = Color3.fromRGB(35, 40, 52)
+SwitchButton.Text = "NEXT (TAB)"
+SwitchButton.TextColor3 = Color3.fromRGB(220, 220, 220)
+SwitchButton.Font = Enum.Font.GothamBold
+SwitchButton.TextSize = 10
+SwitchButton.BorderSizePixel = 0
+SwitchButton.Parent = PlayerTab
+
+local SwitchBtnCorner = Instance.new("UICorner")
+SwitchBtnCorner.CornerRadius = UDim.new(0, 6)
+SwitchBtnCorner.Parent = SwitchButton
+
+-- ============================================================================
+-- DROPDOWNS DI TAB PLAYER
+-- ============================================================================
+
 
 -- Inisialisasi 5 Dropdown di Tab Player
 CreateDropdown(PlayerTab, "TARGET BODY PART:", 132, {
@@ -1350,6 +1515,328 @@ local function SwitchTarget()
         UpdateUI()
     end)
 end
+
+-- ============================================================================
+-- ESP BILLBOARD SYSTEM (DELTA, CODEX, ARCEUS & PC READY)
+-- ============================================================================
+local ESPObjects = {} -- [Model] = espData
+
+function ClearAllESP()
+    for model in pairs(ESPObjects) do
+        if ESPObjects[model] then
+            pcall(function()
+                if ESPObjects[model].Billboard then
+                    ESPObjects[model].Billboard:Destroy()
+                end
+            end)
+            ESPObjects[model] = nil
+        end
+    end
+end
+
+local function RemoveESP(model)
+    if ESPObjects[model] then
+        pcall(function()
+            if ESPObjects[model].Billboard then
+                ESPObjects[model].Billboard:Destroy()
+            end
+        end)
+        ESPObjects[model] = nil
+    end
+end
+
+local function CreateESP(model, color, displayName)
+    if not model or not model.Parent then return nil end
+    if ESPObjects[model] then return ESPObjects[model] end
+
+    local head = model:FindFirstChild("Head") 
+        or model:FindFirstChild("HumanoidRootPart")
+        or model:FindFirstChild("UpperTorso")
+        or model.PrimaryPart
+
+    if not head or not head:IsA("BasePart") then return nil end
+
+    local billboard = Instance.new("BillboardGui")
+    billboard.Name = "ESP_Billboard"
+    billboard.Adornee = head
+    billboard.Size = UDim2.new(0, 200, 0, 60)
+    billboard.StudsOffsetWorldSpace = Vector3.new(0, 3, 0)
+    billboard.AlwaysOnTop = true
+    billboard.LightInfluence = 0
+    billboard.MaxDistance = Config.ESPMaxDistance
+    pcall(function() billboard.Parent = head end)
+
+    local container = Instance.new("Frame")
+    container.Name = "Container"
+    container.Size = UDim2.new(1, 0, 1, 0)
+    container.BackgroundTransparency = 1
+    container.Parent = billboard
+
+    local box = Instance.new("Frame")
+    box.Name = "Box"
+    box.AnchorPoint = Vector2.new(0.5, 0.5)
+    box.Position = UDim2.new(0.5, 0, 0.5, 0)
+    box.Size = UDim2.new(0, 60, 0, 90)
+    box.BackgroundTransparency = 1
+    box.BorderSizePixel = 2
+    box.BorderColor3 = color
+    box.Parent = container
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 4)
+    corner.Parent = box
+
+    local nameLabel = Instance.new("TextLabel")
+    nameLabel.Name = "NameLabel"
+    nameLabel.AnchorPoint = Vector2.new(0.5, 1)
+    nameLabel.Position = UDim2.new(0.5, 0, 0, -4)
+    nameLabel.Size = UDim2.new(1, 0, 0, 16)
+    nameLabel.BackgroundTransparency = 1
+    nameLabel.Text = displayName
+    nameLabel.TextColor3 = color
+    nameLabel.TextStrokeTransparency = 0
+    nameLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+    nameLabel.TextScaled = false
+    nameLabel.TextSize = Config.ESPTextSize
+    nameLabel.Font = Enum.Font.GothamBold
+    nameLabel.Visible = Config.ESPShowName
+    nameLabel.Parent = container
+
+    local distLabel = Instance.new("TextLabel")
+    distLabel.Name = "DistanceLabel"
+    distLabel.AnchorPoint = Vector2.new(0.5, 0)
+    distLabel.Position = UDim2.new(0.5, 0, 1, 4)
+    distLabel.Size = UDim2.new(1, 0, 0, 14)
+    distLabel.BackgroundTransparency = 1
+    distLabel.Text = "[0 m]"
+    distLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    distLabel.TextStrokeTransparency = 0
+    distLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+    distLabel.TextSize = Config.ESPTextSize - 2
+    distLabel.Font = Enum.Font.GothamBold
+    distLabel.Visible = Config.ESPShowDistance
+    distLabel.Parent = container
+
+    local healthBg = Instance.new("Frame")
+    healthBg.Name = "HealthBg"
+    healthBg.AnchorPoint = Vector2.new(1, 0.5)
+    healthBg.Position = UDim2.new(0, -4, 0.5, 0)
+    healthBg.Size = UDim2.new(0, 4, 0.8, 0)
+    healthBg.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+    healthBg.BorderSizePixel = 0
+    healthBg.Visible = Config.ESPShowHealth
+    healthBg.Parent = container
+
+    local bgCorner = Instance.new("UICorner")
+    bgCorner.CornerRadius = UDim.new(0, 2)
+    bgCorner.Parent = healthBg
+
+    local healthFill = Instance.new("Frame")
+    healthFill.Name = "HealthFill"
+    healthFill.AnchorPoint = Vector2.new(0, 1)
+    healthFill.Position = UDim2.new(0, 0, 1, 0)
+    healthFill.Size = UDim2.new(1, 0, 1, 0)
+    healthFill.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
+    healthFill.BorderSizePixel = 0
+    healthFill.Parent = healthBg
+
+    local fillCorner = Instance.new("UICorner")
+    fillCorner.CornerRadius = UDim.new(0, 2)
+    fillCorner.Parent = healthFill
+
+    local espData = {
+        Billboard = billboard,
+        Head = head,
+        Model = model,
+        Box = box,
+        NameLabel = nameLabel,
+        DistanceLabel = distLabel,
+        HealthBg = healthBg,
+        HealthFill = healthFill,
+        Color = color
+    }
+
+    ESPObjects[model] = espData
+    return espData
+end
+
+local function UpdateESP(espData)
+    local model = espData.Model
+    local head = espData.Head
+
+    if not model or not model.Parent or not head or not head.Parent then
+        return false
+    end
+
+    if espData.Billboard.Adornee ~= head then
+        espData.Billboard.Adornee = head
+    end
+
+    espData.NameLabel.Visible = Config.ESPShowName
+
+    if Config.ESPShowDistance then
+        local distance = (Camera.CFrame.Position - head.Position).Magnitude
+        espData.DistanceLabel.Text = string.format("[%d m]", math.floor(distance))
+        espData.DistanceLabel.Visible = true
+    else
+        espData.DistanceLabel.Visible = false
+    end
+
+    local humanoid = model:FindFirstChildOfClass("Humanoid")
+    if Config.ESPShowHealth and humanoid and humanoid.MaxHealth > 0 then
+        local pct = math.clamp(humanoid.Health / humanoid.MaxHealth, 0, 1)
+        espData.HealthFill.Size = UDim2.new(1, 0, pct, 0)
+        espData.HealthBg.Visible = true
+
+        if pct > 0.5 then
+            espData.HealthFill.BackgroundColor3 = Color3.fromRGB(
+                math.floor(255 * (1 - pct) * 2), 255, 0)
+        else
+            espData.HealthFill.BackgroundColor3 = Color3.fromRGB(
+                255, math.floor(255 * pct * 2), 0)
+        end
+    else
+        espData.HealthBg.Visible = false
+    end
+
+    return true
+end
+
+local function SetupPlayerESP(player)
+    if player == LocalPlayer then return end
+    if not Config.ESPEnabled then return end
+    if Config.ESPTargetFilter ~= "All" and Config.ESPTargetFilter ~= "Player" then return end
+
+    local function onCharacter(char)
+        if not char then return end
+        char:WaitForChild("Humanoid", 5)
+        char:WaitForChild("HumanoidRootPart", 5)
+        task.wait(0.2)
+
+        RemoveESP(char)
+        if Config.ESPEnabled and (Config.ESPTargetFilter == "All" or Config.ESPTargetFilter == "Player") then
+            CreateESP(char, Config.ESPPlayerColor, player.DisplayName .. " (@" .. player.Name .. ")")
+        end
+    end
+
+    if player.Character then
+        task.spawn(onCharacter, player.Character)
+    end
+    player.CharacterAdded:Connect(onCharacter)
+end
+
+local function SetupNPCESP(model)
+    if not Config.ESPEnabled then return end
+    if not model or not model:IsA("Model") then return end
+    if not model:FindFirstChildOfClass("Humanoid") then return end
+    if IsPlayerCharacter(model) then return end
+    if ESPObjects[model] then return end
+
+    local nameLower = string.lower(model.Name)
+    local isBot = false
+    if nameLower:find("npc") or nameLower:find("dummy")
+       or nameLower:find("enemy") or nameLower:find("guard")
+       or nameLower:find("bot") or nameLower:find("mob")
+       or nameLower:find("monster") then
+        isBot = true
+    end
+
+    local allowed = false
+    local color = Config.ESPNPCColor
+    local displayName = "[NPC] " .. model.Name
+
+    if isBot then
+        if Config.ESPTargetFilter == "All" or Config.ESPTargetFilter == "Bot" then
+            allowed = true
+            color = Config.ESPNPCColor
+            displayName = "[NPC] " .. model.Name
+        end
+    else
+        if Config.ESPTargetFilter == "All" or Config.ESPTargetFilter == "Entity" then
+            allowed = true
+            color = Config.ESPEntityColor
+            displayName = "[ENTITY] " .. model.Name
+        end
+    end
+
+    if allowed then
+        CreateESP(model, color, displayName)
+    end
+end
+
+local function ScanAllESP()
+    if not Config.ESPEnabled then return end
+
+    if Config.ESPTargetFilter == "All" or Config.ESPTargetFilter == "Player" then
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer and plr.Character then
+                CreateESP(plr.Character, Config.ESPPlayerColor, plr.DisplayName .. " (@" .. plr.Name .. ")")
+            end
+        end
+    end
+
+    if Config.ESPTargetFilter == "All" or Config.ESPTargetFilter == "Bot" or Config.ESPTargetFilter == "Entity" then
+        for _, obj in ipairs(workspace:GetDescendants()) do
+            if obj:IsA("Model") and obj:FindFirstChildOfClass("Humanoid") then
+                if not IsPlayerCharacter(obj) then
+                    SetupNPCESP(obj)
+                end
+            end
+        end
+    end
+end
+
+function RefreshESP()
+    ClearAllESP()
+    if Config.ESPEnabled then
+        ScanAllESP()
+    end
+end
+
+-- Monitor Objek Baru Workspace & Pemain
+workspace.DescendantAdded:Connect(function(obj)
+    if not Config.ESPEnabled then return end
+    if obj:IsA("Humanoid") and obj.Parent and obj.Parent:IsA("Model") then
+        task.wait(0.4)
+        if obj.Parent and obj.Parent.Parent then
+            if not IsPlayerCharacter(obj.Parent) then
+                SetupNPCESP(obj.Parent)
+            end
+        end
+    end
+end)
+
+workspace.DescendantRemoving:Connect(function(obj)
+    if obj:IsA("Model") and ESPObjects[obj] then
+        RemoveESP(obj)
+    end
+end)
+
+Players.PlayerAdded:Connect(function(plr)
+    if plr ~= LocalPlayer then
+        SetupPlayerESP(plr)
+    end
+end)
+
+Players.PlayerRemoving:Connect(function(plr)
+    if plr.Character then
+        RemoveESP(plr.Character)
+    end
+end)
+
+-- Main ESP Loop (0.1 detik)
+task.spawn(function()
+    while task.wait(0.1) do
+        if Config.ESPEnabled then
+            for model, espData in pairs(ESPObjects) do
+                local ok, err = pcall(UpdateESP, espData)
+                if not ok or not espData.Model.Parent then
+                    RemoveESP(model)
+                end
+            end
+        end
+    end
+end)
 
 -- Event Listeners (Tombol UI)
 ToggleButton.MouseButton1Click:Connect(function()
