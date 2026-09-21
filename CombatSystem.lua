@@ -37,17 +37,15 @@ local Config = {
     SwitchKey = Enum.KeyCode.Tab,
     ToggleUIKey = Enum.KeyCode.RightShift,
 
-    -- Konfigurasi ESP Billboard
-    ESPEnabled = false,
-    ESPTargetFilter = "All",       -- "All", "Player", "Bot", "Entity"
-    ESPShowName = true,
-    ESPShowDistance = true,
-    ESPShowHealth = true,
-    ESPTextSize = 13,
-    ESPPlayerColor = Color3.fromRGB(0, 255, 140),
-    ESPNPCColor = Color3.fromRGB(255, 60, 60),
-    ESPEntityColor = Color3.fromRGB(255, 170, 0),
-    ESPMaxDistance = 1000
+    -- Konfigurasi Highlight Visual
+    HighlightAllEnabled = false,
+    HighlightRadiusX = 300,        -- Radius X: Samping / Kanan-Kiri (studs)
+    HighlightRadiusY = 150,        -- Radius Y: Vertikal / Atas-Bawah (studs)
+    HighlightRadiusZ = 300,        -- Radius Z: Depan-Belakang (studs)
+    HighlightTargetType = "All",   -- "All", "Player", "NPC"
+    UnlockedHitboxColor = Color3.fromRGB(255, 220, 0),      -- Kuning untuk target belum di-lock
+    UnlockedTransparency = 0.5,
+    UnlockedOutlineColor = Color3.fromRGB(255, 255, 255)
 }
 
 Config.BreakDistance = Config.MaxLockDistance + 20
@@ -57,10 +55,6 @@ local AutoLockEnabled = false
 local CurrentTargetPart = nil
 local CurrentTargetChar = nil
 local CurrentTargetIsNPC = false
-
--- Forward declaration fungsi ESP
-local RefreshESP = nil
-local ClearAllESP = nil
 
 -- ============================================================================
 -- PENGATURAN PARENT GUI AMAN
@@ -91,7 +85,7 @@ pcall(function()
     local oldBox = game:FindFirstChild("CombatTargetHitboxBox", true)
     if oldBox then oldBox:Destroy() end
     for _, v in ipairs(workspace:GetDescendants()) do
-        if v.Name == "ESP_Billboard" and v:IsA("BillboardGui") then
+        if (v.Name == "CombatUnlockedHighlight" and v:IsA("Highlight")) or (v.Name == "CombatHighlightInfoBB" and v:IsA("BillboardGui")) then
             v:Destroy()
         end
     end
@@ -382,37 +376,6 @@ TopDivider.Position = UDim2.new(0, 0, 0, 40)
 TopDivider.BackgroundColor3 = Color3.fromRGB(30, 35, 48)
 TopDivider.BorderSizePixel = 0
 TopDivider.Parent = MainFrame
-
--- Dragging MainFrame (Mouse & Touch di Delta Mobile)
-local isMainDragging = false
-local mainDragStart = nil
-local mainStartPos = nil
-
-TopBar.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        isMainDragging = true
-        mainDragStart = input.Position
-        mainStartPos = MainFrame.Position
-
-        input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-                isMainDragging = false
-            end
-        end)
-    end
-end)
-
-UserInputService.InputChanged:Connect(function(input)
-    if isMainDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-        local delta = input.Position - mainDragStart
-        MainFrame.Position = UDim2.new(
-            mainStartPos.X.Scale,
-            mainStartPos.X.Offset + delta.X,
-            mainStartPos.Y.Scale,
-            mainStartPos.Y.Offset + delta.Y
-        )
-    end
-end)
 
 -- Logika Minimize & Restore
 MinBtn.MouseButton1Click:Connect(function()
@@ -811,123 +774,216 @@ HubInfo.TextXAlignment = Enum.TextXAlignment.Left
 HubInfo.Parent = MainTab
 
 -- ============================================================================
--- 2. ISI TAB VISUAL (ESP BILLBOARD & TARGET FILTER)
+-- 2. ISI TAB VISUAL (ENTITY HIGHLIGHT SYSTEM)
 -- ============================================================================
-VisualTab.CanvasSize = UDim2.new(0, 0, 0, 260)
+VisualTab.CanvasSize = UDim2.new(0, 0, 0, 360)
 
 local VisualSectionTitle = Instance.new("TextLabel")
 VisualSectionTitle.Size = UDim2.new(1, -28, 0, 18)
 VisualSectionTitle.Position = UDim2.new(0, 14, 0, 10)
 VisualSectionTitle.BackgroundTransparency = 1
-VisualSectionTitle.Text = "ESP BILLBOARD SETTINGS"
+VisualSectionTitle.Text = "ENTITY HIGHLIGHT VISUALS"
 VisualSectionTitle.TextColor3 = Color3.fromRGB(120, 130, 150)
 VisualSectionTitle.Font = Enum.Font.GothamBold
 VisualSectionTitle.TextSize = 10
 VisualSectionTitle.TextXAlignment = Enum.TextXAlignment.Left
 VisualSectionTitle.Parent = VisualTab
 
--- Dropdown di atas tombol: Pilih Target (Player, Bot, Entity, Semua)
-CreateDropdown(VisualTab, "TARGET ESP FILTER:", 32, {
-    { Name = "Semua (Player, Bot, Entity)", Value = "All" },
+-- Kartu Informasi Warna Highlight
+local LegendCard = Instance.new("Frame")
+LegendCard.Size = UDim2.new(1, -28, 0, 50)
+LegendCard.Position = UDim2.new(0, 14, 0, 30)
+LegendCard.BackgroundColor3 = Color3.fromRGB(18, 21, 29)
+LegendCard.BorderSizePixel = 0
+LegendCard.Parent = VisualTab
+
+local LegendCorner = Instance.new("UICorner")
+LegendCorner.CornerRadius = UDim.new(0, 6)
+LegendCorner.Parent = LegendCard
+
+local LegendStroke = Instance.new("UIStroke")
+LegendStroke.Thickness = 1
+LegendStroke.Color = Color3.fromRGB(35, 40, 55)
+LegendStroke.Parent = LegendCard
+
+local LockDesc = Instance.new("TextLabel")
+LockDesc.Size = UDim2.new(1, -16, 0, 18)
+LockDesc.Position = UDim2.new(0, 10, 0, 6)
+LockDesc.BackgroundTransparency = 1
+LockDesc.Text = "🔴 Target Lock (Aim Lock) : Warna Merah"
+LockDesc.TextColor3 = Color3.fromRGB(255, 90, 110)
+LockDesc.Font = Enum.Font.GothamMedium
+LockDesc.TextSize = 10
+LockDesc.TextXAlignment = Enum.TextXAlignment.Left
+LockDesc.Parent = LegendCard
+
+local UnlockedDesc = Instance.new("TextLabel")
+UnlockedDesc.Size = UDim2.new(1, -16, 0, 18)
+UnlockedDesc.Position = UDim2.new(0, 10, 0, 26)
+UnlockedDesc.BackgroundTransparency = 1
+UnlockedDesc.Text = "🟡 Target Sekitar (Unlocked) : Warna Kuning"
+UnlockedDesc.TextColor3 = Color3.fromRGB(255, 225, 80)
+UnlockedDesc.Font = Enum.Font.GothamMedium
+UnlockedDesc.TextSize = 10
+UnlockedDesc.TextXAlignment = Enum.TextXAlignment.Left
+UnlockedDesc.Parent = LegendCard
+
+-- Dropdown Filter Target di Tab Visual
+CreateDropdown(VisualTab, "TARGET HIGHLIGHT FILTER:", 86, {
+    { Name = "Semua (Player & NPC)", Value = "All" },
     { Name = "Player Saja", Value = "Player" },
-    { Name = "Bot / NPC Saja", Value = "Bot" },
-    { Name = "Entity Saja", Value = "Entity" }
-}, Config.ESPTargetFilter, 25, function(val)
-    Config.ESPTargetFilter = val
-    if Config.ESPEnabled and RefreshESP then
-        RefreshESP()
-    end
+    { Name = "Bot / NPC Saja", Value = "NPC" }
+}, Config.HighlightTargetType, 20, function(val)
+    Config.HighlightTargetType = val
 end)
 
--- Tombol Trigger ESP (Di Bawah Dropdown)
-local ESPToggleBtn = Instance.new("TextButton")
-ESPToggleBtn.Size = UDim2.new(1, -28, 0, 32)
-ESPToggleBtn.Position = UDim2.new(0, 14, 0, 86)
-ESPToggleBtn.BackgroundColor3 = Color3.fromRGB(35, 40, 52)
-ESPToggleBtn.Text = "AKTIFKAN ESP (OFF)"
-ESPToggleBtn.TextColor3 = Color3.fromRGB(220, 225, 235)
-ESPToggleBtn.Font = Enum.Font.GothamBold
-ESPToggleBtn.TextSize = 11
-ESPToggleBtn.BorderSizePixel = 0
-ESPToggleBtn.ZIndex = 2
-ESPToggleBtn.Parent = VisualTab
+-- Tombol Toggle Highlight ON/OFF
+local HighlightToggleBtn = Instance.new("TextButton")
+HighlightToggleBtn.Size = UDim2.new(1, -28, 0, 32)
+HighlightToggleBtn.Position = UDim2.new(0, 14, 0, 140)
+HighlightToggleBtn.BackgroundColor3 = Color3.fromRGB(35, 40, 52)
+HighlightToggleBtn.Text = "AKTIFKAN HIGHLIGHT (OFF)"
+HighlightToggleBtn.TextColor3 = Color3.fromRGB(220, 225, 235)
+HighlightToggleBtn.Font = Enum.Font.GothamBold
+HighlightToggleBtn.TextSize = 11
+HighlightToggleBtn.BorderSizePixel = 0
+HighlightToggleBtn.ZIndex = 2
+HighlightToggleBtn.Parent = VisualTab
 
-local ESPToggleCorner = Instance.new("UICorner")
-ESPToggleCorner.CornerRadius = UDim.new(0, 6)
-ESPToggleCorner.Parent = ESPToggleBtn
+local HLToggleCorner = Instance.new("UICorner")
+HLToggleCorner.CornerRadius = UDim.new(0, 6)
+HLToggleCorner.Parent = HighlightToggleBtn
 
-local ESPToggleStroke = Instance.new("UIStroke")
-ESPToggleStroke.Thickness = 1
-ESPToggleStroke.Color = Color3.fromRGB(50, 58, 76)
-ESPToggleStroke.Parent = ESPToggleBtn
+local HLToggleStroke = Instance.new("UIStroke")
+HLToggleStroke.Thickness = 1
+HLToggleStroke.Color = Color3.fromRGB(50, 58, 76)
+HLToggleStroke.Parent = HighlightToggleBtn
 
-ESPToggleBtn.MouseButton1Click:Connect(function()
-    Config.ESPEnabled = not Config.ESPEnabled
-    if Config.ESPEnabled then
-        ESPToggleBtn.Text = "MATIKAN ESP (ON)"
-        ESPToggleBtn.BackgroundColor3 = Color3.fromRGB(0, 180, 120)
-        ESPToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-        ESPToggleStroke.Color = Color3.fromRGB(0, 220, 150)
-        if RefreshESP then RefreshESP() end
+HighlightToggleBtn.MouseButton1Click:Connect(function()
+    Config.HighlightAllEnabled = not Config.HighlightAllEnabled
+    if Config.HighlightAllEnabled then
+        HighlightToggleBtn.Text = "MATIKAN HIGHLIGHT (ON)"
+        HighlightToggleBtn.BackgroundColor3 = Color3.fromRGB(0, 180, 120)
+        HighlightToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        HLToggleStroke.Color = Color3.fromRGB(0, 220, 150)
     else
-        ESPToggleBtn.Text = "AKTIFKAN ESP (OFF)"
-        ESPToggleBtn.BackgroundColor3 = Color3.fromRGB(35, 40, 52)
-        ESPToggleBtn.TextColor3 = Color3.fromRGB(220, 225, 235)
-        ESPToggleStroke.Color = Color3.fromRGB(50, 58, 76)
-        if ClearAllESP then ClearAllESP() end
+        HighlightToggleBtn.Text = "AKTIFKAN HIGHLIGHT (OFF)"
+        HighlightToggleBtn.BackgroundColor3 = Color3.fromRGB(35, 40, 52)
+        HighlightToggleBtn.TextColor3 = Color3.fromRGB(220, 225, 235)
+        HLToggleStroke.Color = Color3.fromRGB(50, 58, 76)
     end
 end)
 
--- Elemen Tampilan ESP (Health, Jarak, Nama)
-local DispTitle = Instance.new("TextLabel")
-DispTitle.Size = UDim2.new(1, -28, 0, 16)
-DispTitle.Position = UDim2.new(0, 14, 0, 128)
-DispTitle.BackgroundTransparency = 1
-DispTitle.Text = "ELEMEN TAMPILAN ESP:"
-DispTitle.TextColor3 = Color3.fromRGB(120, 130, 150)
-DispTitle.Font = Enum.Font.GothamBold
-DispTitle.TextSize = 10
-DispTitle.TextXAlignment = Enum.TextXAlignment.Left
-DispTitle.Parent = VisualTab
+-- Helper Pembuat Slider Sumbu X, Y, Z di Tab Visual
+local function CreateAxisSlider(parent, titleText, yPos, configKey, minVal, maxVal, accentColor)
+    local SliderContainer = Instance.new("Frame")
+    SliderContainer.Name = "Slider_" .. configKey
+    SliderContainer.Size = UDim2.new(1, -28, 0, 48)
+    SliderContainer.Position = UDim2.new(0, 14, 0, yPos)
+    SliderContainer.BackgroundTransparency = 1
+    SliderContainer.Parent = parent
 
-local function CreateESPDisplayToggle(yPos, labelText, configKey)
-    local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(1, -28, 0, 24)
-    btn.Position = UDim2.new(0, 14, 0, yPos)
-    btn.BackgroundColor3 = Config[configKey] and Color3.fromRGB(24, 38, 55) or Color3.fromRGB(22, 25, 33)
-    btn.Text = "  " .. labelText .. ": " .. (Config[configKey] and "ON" or "OFF")
-    btn.TextColor3 = Config[configKey] and Color3.fromRGB(80, 210, 255) or Color3.fromRGB(140, 145, 160)
-    btn.Font = Enum.Font.GothamMedium
-    btn.TextSize = 10
-    btn.TextXAlignment = Enum.TextXAlignment.Left
-    btn.BorderSizePixel = 0
-    btn.Parent = VisualTab
+    local SliderTitle = Instance.new("TextLabel")
+    SliderTitle.Size = UDim2.new(0.68, 0, 0, 14)
+    SliderTitle.Position = UDim2.new(0, 0, 0, 0)
+    SliderTitle.BackgroundTransparency = 1
+    SliderTitle.Text = titleText
+    SliderTitle.TextColor3 = Color3.fromRGB(150, 155, 170)
+    SliderTitle.Font = Enum.Font.GothamMedium
+    SliderTitle.TextSize = 10
+    SliderTitle.TextXAlignment = Enum.TextXAlignment.Left
+    SliderTitle.Parent = SliderContainer
 
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 6)
-    corner.Parent = btn
+    local SliderValueLabel = Instance.new("TextLabel")
+    SliderValueLabel.Size = UDim2.new(0.32, 0, 0, 14)
+    SliderValueLabel.Position = UDim2.new(0.68, 0, 0, 0)
+    SliderValueLabel.BackgroundTransparency = 1
+    SliderValueLabel.Text = string.format("%d studs", Config[configKey])
+    SliderValueLabel.TextColor3 = accentColor
+    SliderValueLabel.Font = Enum.Font.GothamBold
+    SliderValueLabel.TextSize = 10
+    SliderValueLabel.TextXAlignment = Enum.TextXAlignment.Right
+    SliderValueLabel.Parent = SliderContainer
 
-    local stroke = Instance.new("UIStroke")
-    stroke.Thickness = 1
-    stroke.Color = Config[configKey] and Color3.fromRGB(0, 120, 255) or Color3.fromRGB(40, 45, 60)
-    stroke.Parent = btn
+    local SliderBar = Instance.new("Frame")
+    SliderBar.Name = "SliderBar"
+    SliderBar.Size = UDim2.new(1, 0, 0, 8)
+    SliderBar.Position = UDim2.new(0, 0, 0, 20)
+    SliderBar.BackgroundColor3 = Color3.fromRGB(30, 34, 46)
+    SliderBar.BorderSizePixel = 0
+    SliderBar.Parent = SliderContainer
 
-    btn.MouseButton1Click:Connect(function()
-        Config[configKey] = not Config[configKey]
-        btn.Text = "  " .. labelText .. ": " .. (Config[configKey] and "ON" or "OFF")
-        btn.BackgroundColor3 = Config[configKey] and Color3.fromRGB(24, 38, 55) or Color3.fromRGB(22, 25, 33)
-        btn.TextColor3 = Config[configKey] and Color3.fromRGB(80, 210, 255) or Color3.fromRGB(140, 145, 160)
-        stroke.Color = Config[configKey] and Color3.fromRGB(0, 120, 255) or Color3.fromRGB(40, 45, 60)
-        if Config.ESPEnabled and RefreshESP then
-            RefreshESP()
+    local SliderBarCorner = Instance.new("UICorner")
+    SliderBarCorner.CornerRadius = UDim.new(1, 0)
+    SliderBarCorner.Parent = SliderBar
+
+    local SliderFill = Instance.new("Frame")
+    local initRatio = math.clamp((Config[configKey] - minVal) / (maxVal - minVal), 0, 1)
+    SliderFill.Size = UDim2.new(initRatio, 0, 1, 0)
+    SliderFill.BackgroundColor3 = accentColor
+    SliderFill.BorderSizePixel = 0
+    SliderFill.Parent = SliderBar
+
+    local SliderFillCorner = Instance.new("UICorner")
+    SliderFillCorner.CornerRadius = UDim.new(1, 0)
+    SliderFillCorner.Parent = SliderFill
+
+    local SliderKnob = Instance.new("Frame")
+    SliderKnob.Size = UDim2.new(0, 16, 0, 16)
+    SliderKnob.AnchorPoint = Vector2.new(0.5, 0.5)
+    SliderKnob.Position = UDim2.new(initRatio, 0, 0.5, 0)
+    SliderKnob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    SliderKnob.BorderSizePixel = 0
+    SliderKnob.ZIndex = 3
+    SliderKnob.Parent = SliderBar
+
+    local KnobCorner = Instance.new("UICorner")
+    KnobCorner.CornerRadius = UDim.new(1, 0)
+    KnobCorner.Parent = SliderKnob
+
+    local KnobStroke = Instance.new("UIStroke")
+    KnobStroke.Thickness = 1.5
+    KnobStroke.Color = accentColor
+    KnobStroke.Parent = SliderKnob
+
+    local isSliding = false
+
+    local function UpdateVal(inputX)
+        local barAbsolutePos = SliderBar.AbsolutePosition.X
+        local barAbsoluteSize = SliderBar.AbsoluteSize.X
+        local ratio = math.clamp((inputX - barAbsolutePos) / barAbsoluteSize, 0, 1)
+
+        local newVal = math.floor(minVal + (ratio * (maxVal - minVal)))
+        Config[configKey] = newVal
+
+        SliderFill.Size = UDim2.new(ratio, 0, 1, 0)
+        SliderKnob.Position = UDim2.new(ratio, 0, 0.5, 0)
+        SliderValueLabel.Text = string.format("%d studs", newVal)
+    end
+
+    SliderBar.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            isSliding = true
+            UpdateVal(input.Position.X)
         end
     end)
-    return btn
+
+    UserInputService.InputChanged:Connect(function(input)
+        if isSliding and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            UpdateVal(input.Position.X)
+        end
+    end)
+
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            isSliding = false
+        end
+    end)
 end
 
-CreateESPDisplayToggle(148, "Health Bar & Status", "ESPShowHealth")
-CreateESPDisplayToggle(178, "Jarak / Distance Label", "ESPShowDistance")
-CreateESPDisplayToggle(208, "Nama Target & Role", "ESPShowName")
+CreateAxisSlider(VisualTab, "RADIUS X (KANAN - KIRI):", 182, "HighlightRadiusX", 20, 1500, Color3.fromRGB(255, 120, 80))
+CreateAxisSlider(VisualTab, "RADIUS Y (ATAS - BAWAH):", 236, "HighlightRadiusY", 20, 1000, Color3.fromRGB(80, 220, 150))
+CreateAxisSlider(VisualTab, "RADIUS Z (DEPAN - BELAKANG):", 290, "HighlightRadiusZ", 20, 1500, Color3.fromRGB(80, 190, 255))
 
 local EmptySettingsLabel = Instance.new("TextLabel")
 EmptySettingsLabel.Size = UDim2.new(1, 0, 1, 0)
@@ -1224,6 +1280,9 @@ TargetHitboxBox.SurfaceColor3 = Config.HitboxColor
 TargetHitboxBox.SurfaceTransparency = 0.65
 TargetHitboxBox.LineThickness = 0.05
 
+local UnlockedHighlights = {} -- [Character] = HighlightInstance (Kuning untuk target belum di-lock)
+local HighlightInfoBillboards = {} -- [Character] = BillboardGui (Informasi nickname, darah, jarak)
+
 -- ============================================================================
 -- LOGIKA UTAMA COMBAT DILINDUNGI PCALL
 -- ============================================================================
@@ -1404,6 +1463,12 @@ function SetTarget(entry)
             CurrentTargetPart = GetTargetPart(entry.Character)
             CurrentTargetIsNPC = entry.IsNPC
 
+            -- Bersihkan highlight kuning dari target yang dikunci agar menjadi merah
+            if UnlockedHighlights[entry.Character] then
+                pcall(function() UnlockedHighlights[entry.Character]:Destroy() end)
+                UnlockedHighlights[entry.Character] = nil
+            end
+
             TargetHighlight.Adornee = entry.Character
             TargetHighlight.Parent = entry.Character
 
@@ -1517,326 +1582,228 @@ local function SwitchTarget()
 end
 
 -- ============================================================================
--- ESP BILLBOARD SYSTEM (DELTA, CODEX, ARCEUS & PC READY)
+-- SISTEM HIGHLIGHT KUNING UNTUK TARGET BELUM DI-LOCK
 -- ============================================================================
-local ESPObjects = {} -- [Model] = espData
+local function ClearUnlockedHighlights()
+    for char, hl in pairs(UnlockedHighlights) do
+        pcall(function() hl:Destroy() end)
+    end
+    table.clear(UnlockedHighlights)
+    for char, bb in pairs(HighlightInfoBillboards) do
+        pcall(function() bb:Destroy() end)
+    end
+    table.clear(HighlightInfoBillboards)
+end
 
-function ClearAllESP()
-    for model in pairs(ESPObjects) do
-        if ESPObjects[model] then
-            pcall(function()
-                if ESPObjects[model].Billboard then
-                    ESPObjects[model].Billboard:Destroy()
-                end
-            end)
-            ESPObjects[model] = nil
+local function UpdateOrCreateInfoBB(model, nameStr, hum, dist, isLocked)
+    local bb = HighlightInfoBillboards[model]
+    local label = bb and bb:FindFirstChild("InfoLabel")
+
+    local hpVal = hum and math.max(0, math.floor(hum.Health)) or 0
+    local maxHpVal = hum and math.floor(hum.MaxHealth) or 100
+    local hpStr
+    if maxHpVal > 0 and maxHpVal ~= 100 then
+        hpStr = string.format("[%d/%d HP]", hpVal, maxHpVal)
+    else
+        hpStr = string.format("[%d HP]", hpVal)
+    end
+
+    local textContent = string.format("[%s]\n%s\n[%d studs]", nameStr, hpStr, math.floor(dist))
+    local textColor = isLocked and Color3.fromRGB(255, 75, 75) or Color3.fromRGB(255, 230, 80)
+
+    if not bb or not bb.Parent or not label then
+        local attachPart = model:FindFirstChild("Head") or GetTargetPart(model)
+        if not attachPart then return end
+
+        bb = Instance.new("BillboardGui")
+        bb.Name = "CombatHighlightInfoBB"
+        bb.Adornee = attachPart
+        bb.Size = UDim2.new(0, 150, 0, 48)
+        bb.StudsOffset = Vector3.new(0, 2.6, 0)
+        bb.AlwaysOnTop = true
+        bb.ResetOnSpawn = false
+        bb.MaxDistance = 1500
+
+        label = Instance.new("TextLabel")
+        label.Name = "InfoLabel"
+        label.Size = UDim2.new(1, 0, 1, 0)
+        label.BackgroundTransparency = 1
+        label.TextColor3 = textColor
+        label.TextStrokeTransparency = 0.25
+        label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+        label.Font = Enum.Font.GothamBold
+        label.TextSize = 10
+        label.TextYAlignment = Enum.TextYAlignment.Center
+        label.TextXAlignment = Enum.TextXAlignment.Center
+        label.Text = textContent
+        label.Parent = bb
+
+        pcall(function() bb.Parent = model end)
+        HighlightInfoBillboards[model] = bb
+    else
+        label.Text = textContent
+        label.TextColor3 = textColor
+    end
+end
+
+local function UpdateVisualHighlights()
+    if not Config.HighlightAllEnabled then
+        if next(UnlockedHighlights) ~= nil or next(HighlightInfoBillboards) ~= nil then
+            ClearUnlockedHighlights()
+        end
+        return
+    end
+
+    local myChar = LocalPlayer.Character
+    if not myChar then
+        ClearUnlockedHighlights()
+        return
+    end
+    local myRoot = GetTargetPart(myChar)
+    if not myRoot then
+        ClearUnlockedHighlights()
+        return
+    end
+
+    local myPos = myRoot.Position
+    local candidates = {}
+    local checked = {}
+
+    local function EvaluateModel(model)
+        if not model or not model:IsA("Model") or model == myChar or checked[model] then return end
+        checked[model] = true
+
+        if not IsValidEnemy(model) then return end
+
+        local isPlayer, playerObj = IsPlayerCharacter(model)
+        if isPlayer and Config.TeamCheck and IsSameTeam(playerObj) then return end
+
+        local allowed = false
+        if Config.HighlightTargetType == "All" then
+            allowed = true
+        elseif Config.HighlightTargetType == "NPC" and not isPlayer then
+            allowed = true
+        elseif Config.HighlightTargetType == "Player" and isPlayer then
+            allowed = true
+        end
+
+        if not allowed then return end
+
+        local root = GetTargetPart(model)
+        if not root then return end
+
+        local targetPos = root.Position
+        local diffX = math.abs(targetPos.X - myPos.X)
+        local diffY = math.abs(targetPos.Y - myPos.Y)
+        local diffZ = math.abs(targetPos.Z - myPos.Z)
+
+        if diffX <= Config.HighlightRadiusX and diffY <= Config.HighlightRadiusY and diffZ <= Config.HighlightRadiusZ then
+            local dist = (targetPos - myPos).Magnitude
+            local charName = isPlayer and (playerObj.DisplayName ~= "" and playerObj.DisplayName or playerObj.Name) or model.Name
+            table.insert(candidates, {
+                Model = model,
+                Distance = dist,
+                Name = charName,
+                Humanoid = model:FindFirstChildOfClass("Humanoid")
+            })
         end
     end
-end
 
-local function RemoveESP(model)
-    if ESPObjects[model] then
-        pcall(function()
-            if ESPObjects[model].Billboard then
-                ESPObjects[model].Billboard:Destroy()
+    -- 1. Scan Players
+    if Config.HighlightTargetType == "All" or Config.HighlightTargetType == "Player" then
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer and p.Character then
+                EvaluateModel(p.Character)
             end
-        end)
-        ESPObjects[model] = nil
-    end
-end
-
-local function CreateESP(model, color, displayName)
-    if not model or not model.Parent then return nil end
-    if ESPObjects[model] then return ESPObjects[model] end
-
-    local head = model:FindFirstChild("Head") 
-        or model:FindFirstChild("HumanoidRootPart")
-        or model:FindFirstChild("UpperTorso")
-        or model.PrimaryPart
-
-    if not head or not head:IsA("BasePart") then return nil end
-
-    local billboard = Instance.new("BillboardGui")
-    billboard.Name = "ESP_Billboard"
-    billboard.Adornee = head
-    billboard.Size = UDim2.new(0, 200, 0, 60)
-    billboard.StudsOffsetWorldSpace = Vector3.new(0, 3, 0)
-    billboard.AlwaysOnTop = true
-    billboard.LightInfluence = 0
-    billboard.MaxDistance = Config.ESPMaxDistance
-    pcall(function() billboard.Parent = head end)
-
-    local container = Instance.new("Frame")
-    container.Name = "Container"
-    container.Size = UDim2.new(1, 0, 1, 0)
-    container.BackgroundTransparency = 1
-    container.Parent = billboard
-
-    local box = Instance.new("Frame")
-    box.Name = "Box"
-    box.AnchorPoint = Vector2.new(0.5, 0.5)
-    box.Position = UDim2.new(0.5, 0, 0.5, 0)
-    box.Size = UDim2.new(0, 60, 0, 90)
-    box.BackgroundTransparency = 1
-    box.BorderSizePixel = 2
-    box.BorderColor3 = color
-    box.Parent = container
-
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 4)
-    corner.Parent = box
-
-    local nameLabel = Instance.new("TextLabel")
-    nameLabel.Name = "NameLabel"
-    nameLabel.AnchorPoint = Vector2.new(0.5, 1)
-    nameLabel.Position = UDim2.new(0.5, 0, 0, -4)
-    nameLabel.Size = UDim2.new(1, 0, 0, 16)
-    nameLabel.BackgroundTransparency = 1
-    nameLabel.Text = displayName
-    nameLabel.TextColor3 = color
-    nameLabel.TextStrokeTransparency = 0
-    nameLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
-    nameLabel.TextScaled = false
-    nameLabel.TextSize = Config.ESPTextSize
-    nameLabel.Font = Enum.Font.GothamBold
-    nameLabel.Visible = Config.ESPShowName
-    nameLabel.Parent = container
-
-    local distLabel = Instance.new("TextLabel")
-    distLabel.Name = "DistanceLabel"
-    distLabel.AnchorPoint = Vector2.new(0.5, 0)
-    distLabel.Position = UDim2.new(0.5, 0, 1, 4)
-    distLabel.Size = UDim2.new(1, 0, 0, 14)
-    distLabel.BackgroundTransparency = 1
-    distLabel.Text = "[0 m]"
-    distLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-    distLabel.TextStrokeTransparency = 0
-    distLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
-    distLabel.TextSize = Config.ESPTextSize - 2
-    distLabel.Font = Enum.Font.GothamBold
-    distLabel.Visible = Config.ESPShowDistance
-    distLabel.Parent = container
-
-    local healthBg = Instance.new("Frame")
-    healthBg.Name = "HealthBg"
-    healthBg.AnchorPoint = Vector2.new(1, 0.5)
-    healthBg.Position = UDim2.new(0, -4, 0.5, 0)
-    healthBg.Size = UDim2.new(0, 4, 0.8, 0)
-    healthBg.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-    healthBg.BorderSizePixel = 0
-    healthBg.Visible = Config.ESPShowHealth
-    healthBg.Parent = container
-
-    local bgCorner = Instance.new("UICorner")
-    bgCorner.CornerRadius = UDim.new(0, 2)
-    bgCorner.Parent = healthBg
-
-    local healthFill = Instance.new("Frame")
-    healthFill.Name = "HealthFill"
-    healthFill.AnchorPoint = Vector2.new(0, 1)
-    healthFill.Position = UDim2.new(0, 0, 1, 0)
-    healthFill.Size = UDim2.new(1, 0, 1, 0)
-    healthFill.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
-    healthFill.BorderSizePixel = 0
-    healthFill.Parent = healthBg
-
-    local fillCorner = Instance.new("UICorner")
-    fillCorner.CornerRadius = UDim.new(0, 2)
-    fillCorner.Parent = healthFill
-
-    local espData = {
-        Billboard = billboard,
-        Head = head,
-        Model = model,
-        Box = box,
-        NameLabel = nameLabel,
-        DistanceLabel = distLabel,
-        HealthBg = healthBg,
-        HealthFill = healthFill,
-        Color = color
-    }
-
-    ESPObjects[model] = espData
-    return espData
-end
-
-local function UpdateESP(espData)
-    local model = espData.Model
-    local head = espData.Head
-
-    if not model or not model.Parent or not head or not head.Parent then
-        return false
+        end
     end
 
-    if espData.Billboard.Adornee ~= head then
-        espData.Billboard.Adornee = head
+    -- 2. Scan NPCs di Workspace (Top-level & Folder)
+    if Config.HighlightTargetType == "All" or Config.HighlightTargetType == "NPC" then
+        for _, child in ipairs(workspace:GetChildren()) do
+            if child:IsA("Model") then
+                EvaluateModel(child)
+            elseif child:IsA("Folder") or child:IsA("Model") then
+                local lowerName = string.lower(child.Name)
+                if string.find(lowerName, "npc") or string.find(lowerName, "enemi") 
+                   or string.find(lowerName, "mob") or string.find(lowerName, "bot") 
+                   or string.find(lowerName, "monster") or string.find(lowerName, "zombie") 
+                   or string.find(lowerName, "entity") or string.find(lowerName, "dummy")
+                   or string.find(lowerName, "creature") or string.find(lowerName, "spawn") then
+                    for _, sub in ipairs(child:GetChildren()) do
+                        if sub:IsA("Model") then
+                            EvaluateModel(sub)
+                        end
+                    end
+                end
+            end
+        end
     end
 
-    espData.NameLabel.Visible = Config.ESPShowName
+    -- Sortir dari yang terdekat
+    table.sort(candidates, function(a, b)
+        return a.Distance < b.Distance
+    end)
 
-    if Config.ESPShowDistance then
-        local distance = (Camera.CFrame.Position - head.Position).Magnitude
-        espData.DistanceLabel.Text = string.format("[%d m]", math.floor(distance))
-        espData.DistanceLabel.Visible = true
-    else
-        espData.DistanceLabel.Visible = false
-    end
+    local seen = {}
+    local MAX_HIGHLIGHTS = 28
+    local count = 0
 
-    local humanoid = model:FindFirstChildOfClass("Humanoid")
-    if Config.ESPShowHealth and humanoid and humanoid.MaxHealth > 0 then
-        local pct = math.clamp(humanoid.Health / humanoid.MaxHealth, 0, 1)
-        espData.HealthFill.Size = UDim2.new(1, 0, pct, 0)
-        espData.HealthBg.Visible = true
+    for _, entry in ipairs(candidates) do
+        if count >= MAX_HIGHLIGHTS then break end
+        local model = entry.Model
+        seen[model] = true
+        count = count + 1
 
-        if pct > 0.5 then
-            espData.HealthFill.BackgroundColor3 = Color3.fromRGB(
-                math.floor(255 * (1 - pct) * 2), 255, 0)
+        local isLocked = (model == CurrentTargetChar and AutoLockEnabled)
+
+        -- Tampilkan info teks [nickname] [health] [... studs]
+        UpdateOrCreateInfoBB(model, entry.Name, entry.Humanoid, entry.Distance, isLocked)
+
+        -- Jika target ini sedang di-lock (berwarna merah), jangan beri highlight kuning
+        if isLocked then
+            if UnlockedHighlights[model] then
+                pcall(function() UnlockedHighlights[model]:Destroy() end)
+                UnlockedHighlights[model] = nil
+            end
         else
-            espData.HealthFill.BackgroundColor3 = Color3.fromRGB(
-                255, math.floor(255 * pct * 2), 0)
-        end
-    else
-        espData.HealthBg.Visible = false
-    end
-
-    return true
-end
-
-local function SetupPlayerESP(player)
-    if player == LocalPlayer then return end
-    if not Config.ESPEnabled then return end
-    if Config.ESPTargetFilter ~= "All" and Config.ESPTargetFilter ~= "Player" then return end
-
-    local function onCharacter(char)
-        if not char then return end
-        char:WaitForChild("Humanoid", 5)
-        char:WaitForChild("HumanoidRootPart", 5)
-        task.wait(0.2)
-
-        RemoveESP(char)
-        if Config.ESPEnabled and (Config.ESPTargetFilter == "All" or Config.ESPTargetFilter == "Player") then
-            CreateESP(char, Config.ESPPlayerColor, player.DisplayName .. " (@" .. player.Name .. ")")
-        end
-    end
-
-    if player.Character then
-        task.spawn(onCharacter, player.Character)
-    end
-    player.CharacterAdded:Connect(onCharacter)
-end
-
-local function SetupNPCESP(model)
-    if not Config.ESPEnabled then return end
-    if not model or not model:IsA("Model") then return end
-    if not model:FindFirstChildOfClass("Humanoid") then return end
-    if IsPlayerCharacter(model) then return end
-    if ESPObjects[model] then return end
-
-    local nameLower = string.lower(model.Name)
-    local isBot = false
-    if nameLower:find("npc") or nameLower:find("dummy")
-       or nameLower:find("enemy") or nameLower:find("guard")
-       or nameLower:find("bot") or nameLower:find("mob")
-       or nameLower:find("monster") then
-        isBot = true
-    end
-
-    local allowed = false
-    local color = Config.ESPNPCColor
-    local displayName = "[NPC] " .. model.Name
-
-    if isBot then
-        if Config.ESPTargetFilter == "All" or Config.ESPTargetFilter == "Bot" then
-            allowed = true
-            color = Config.ESPNPCColor
-            displayName = "[NPC] " .. model.Name
-        end
-    else
-        if Config.ESPTargetFilter == "All" or Config.ESPTargetFilter == "Entity" then
-            allowed = true
-            color = Config.ESPEntityColor
-            displayName = "[ENTITY] " .. model.Name
-        end
-    end
-
-    if allowed then
-        CreateESP(model, color, displayName)
-    end
-end
-
-local function ScanAllESP()
-    if not Config.ESPEnabled then return end
-
-    if Config.ESPTargetFilter == "All" or Config.ESPTargetFilter == "Player" then
-        for _, plr in ipairs(Players:GetPlayers()) do
-            if plr ~= LocalPlayer and plr.Character then
-                CreateESP(plr.Character, Config.ESPPlayerColor, plr.DisplayName .. " (@" .. plr.Name .. ")")
+            -- Target belum di-lock: Berikan highlight kuning
+            local hl = UnlockedHighlights[model]
+            if not hl or not hl.Parent then
+                hl = Instance.new("Highlight")
+                hl.Name = "CombatUnlockedHighlight"
+                hl.FillColor = Config.UnlockedHitboxColor
+                hl.FillTransparency = Config.UnlockedTransparency
+                hl.OutlineColor = Config.UnlockedOutlineColor
+                hl.OutlineTransparency = 0.2
+                hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                hl.Adornee = model
+                pcall(function() hl.Parent = model end)
+                UnlockedHighlights[model] = hl
+            else
+                hl.Adornee = model
+                hl.FillColor = Config.UnlockedHitboxColor
+                hl.Enabled = true
             end
         end
     end
 
-    if Config.ESPTargetFilter == "All" or Config.ESPTargetFilter == "Bot" or Config.ESPTargetFilter == "Entity" then
-        for _, obj in ipairs(workspace:GetDescendants()) do
-            if obj:IsA("Model") and obj:FindFirstChildOfClass("Humanoid") then
-                if not IsPlayerCharacter(obj) then
-                    SetupNPCESP(obj)
-                end
-            end
+    -- Hapus highlight yang sudah tidak terlihat / di luar jangkauan
+    for char, hl in pairs(UnlockedHighlights) do
+        if not seen[char] or not char.Parent then
+            pcall(function() hl:Destroy() end)
+            UnlockedHighlights[char] = nil
+        end
+    end
+
+    -- Hapus info billboard yang sudah tidak terlihat / di luar jangkauan
+    for char, bb in pairs(HighlightInfoBillboards) do
+        if not seen[char] or not char.Parent then
+            pcall(function() bb:Destroy() end)
+            HighlightInfoBillboards[char] = nil
         end
     end
 end
-
-function RefreshESP()
-    ClearAllESP()
-    if Config.ESPEnabled then
-        ScanAllESP()
-    end
-end
-
--- Monitor Objek Baru Workspace & Pemain
-workspace.DescendantAdded:Connect(function(obj)
-    if not Config.ESPEnabled then return end
-    if obj:IsA("Humanoid") and obj.Parent and obj.Parent:IsA("Model") then
-        task.wait(0.4)
-        if obj.Parent and obj.Parent.Parent then
-            if not IsPlayerCharacter(obj.Parent) then
-                SetupNPCESP(obj.Parent)
-            end
-        end
-    end
-end)
-
-workspace.DescendantRemoving:Connect(function(obj)
-    if obj:IsA("Model") and ESPObjects[obj] then
-        RemoveESP(obj)
-    end
-end)
-
-Players.PlayerAdded:Connect(function(plr)
-    if plr ~= LocalPlayer then
-        SetupPlayerESP(plr)
-    end
-end)
-
-Players.PlayerRemoving:Connect(function(plr)
-    if plr.Character then
-        RemoveESP(plr.Character)
-    end
-end)
-
--- Main ESP Loop (0.1 detik)
-task.spawn(function()
-    while task.wait(0.1) do
-        if Config.ESPEnabled then
-            for model, espData in pairs(ESPObjects) do
-                local ok, err = pcall(UpdateESP, espData)
-                if not ok or not espData.Model.Parent then
-                    RemoveESP(model)
-                end
-            end
-        end
-    end
-end)
 
 -- Event Listeners (Tombol UI)
 ToggleButton.MouseButton1Click:Connect(function()
@@ -1873,6 +1840,7 @@ end)
 RunService.RenderStepped:Connect(function(dt)
     pcall(function()
         UpdateUI()
+        UpdateVisualHighlights()
 
         if not AutoLockEnabled then return end
 
