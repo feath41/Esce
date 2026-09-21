@@ -25,7 +25,7 @@ local Config = {
     LockMode = "Distance",         -- "Distance" (Jarak 3D) atau "Cursor" (2D Layar)
     TargetType = "All",            -- "All" (Player + Bot), "NPC" (Hanya Bot), "Player" (Hanya Player)
     TeamCheck = true,              -- true = hanya musuh, false = semua
-    TargetSwitchMode = "Dynamic",   -- "Dynamic" = ganti ke yang lebih dekat, "Persistent" = sampai mati
+    TargetSwitchMode = "Dynamic",   -- "Dynamic" = musuh terdekat, "LowestHP" = darah terendah, "Persistent" = sampai mati
     SwitchDistanceMargin = 3,      -- Margin jarak (studs)
     
     -- Konfigurasi Hitbox Visual
@@ -45,7 +45,10 @@ local Config = {
     HighlightTargetType = "All",   -- "All", "Player", "NPC"
     UnlockedHitboxColor = Color3.fromRGB(255, 220, 0),      -- Kuning untuk target belum di-lock
     UnlockedTransparency = 0.5,
-    UnlockedOutlineColor = Color3.fromRGB(255, 255, 255)
+    UnlockedOutlineColor = Color3.fromRGB(255, 255, 255),
+
+    -- Konfigurasi Teleport & Terbang
+    FlySpeed = 120                 -- Kecepatan terbang ke target (studs/detik)
 }
 
 Config.BreakDistance = Config.MaxLockDistance + 20
@@ -78,6 +81,8 @@ local SafeParent = GetSafeGuiParent()
 
 -- Bersihkan instance lama jika re-execute
 pcall(function()
+    if _G.CombatFlyHeartbeat then _G.CombatFlyHeartbeat:Disconnect() _G.CombatFlyHeartbeat = nil end
+    if _G.CombatFlyNoclip then _G.CombatFlyNoclip:Disconnect() _G.CombatFlyNoclip = nil end
     local oldGui = SafeParent:FindFirstChild("CombatTargetGui")
     if oldGui then oldGui:Destroy() end
     local oldHighlight = game:FindFirstChild("CombatTargetHitboxHighlight", true)
@@ -565,11 +570,16 @@ SwitchTab("Player")
 -- DROPDOWN SYSTEM REUSABLE (UNTUK SEMUA TAB)
 -- ============================================================================
 local activeDropdownList = nil
+local activeDropdownArrow = nil
 
 function CloseAllDropdowns()
     if activeDropdownList then
         activeDropdownList.Visible = false
         activeDropdownList = nil
+    end
+    if activeDropdownArrow then
+        activeDropdownArrow.Text = "▼"
+        activeDropdownArrow = nil
     end
 end
 
@@ -663,6 +673,7 @@ local function CreateDropdown(parent, labelText, yPos, options, defaultKey, zInd
             arrow.Text = "▼"
             listFrame.Visible = false
             activeDropdownList = nil
+            activeDropdownArrow = nil
 
             for _, child in ipairs(listFrame:GetChildren()) do
                 if child:IsA("TextButton") then
@@ -681,12 +692,14 @@ local function CreateDropdown(parent, labelText, yPos, options, defaultKey, zInd
             arrow.Text = "▼"
             if activeDropdownList == listFrame then
                 activeDropdownList = nil
+                activeDropdownArrow = nil
             end
         else
             CloseAllDropdowns()
             listFrame.Visible = true
             arrow.Text = "▲"
             activeDropdownList = listFrame
+            activeDropdownArrow = arrow
         end
     end)
 
@@ -696,9 +709,14 @@ end
 -- ============================================================================
 -- 1. ISI TAB MAIN (DEVELOPER PROFILE / CREATED BY FEATH)
 -- ============================================================================
+-- ============================================================================
+-- 1. ISI TAB MAIN (DEVELOPER PROFILE + TELEPORT & TERBANG)
+-- ============================================================================
+MainTab.CanvasSize = UDim2.new(0, 0, 0, 335)
+
 local ProfileCard = Instance.new("Frame")
-ProfileCard.Size = UDim2.new(1, -28, 0, 100)
-ProfileCard.Position = UDim2.new(0, 14, 0, 14)
+ProfileCard.Size = UDim2.new(1, -28, 0, 84)
+ProfileCard.Position = UDim2.new(0, 14, 0, 10)
 ProfileCard.BackgroundColor3 = Color3.fromRGB(20, 24, 34)
 ProfileCard.BorderSizePixel = 0
 ProfileCard.Parent = MainTab
@@ -713,8 +731,8 @@ ProfStroke.Color = Color3.fromRGB(45, 55, 80)
 ProfStroke.Parent = ProfileCard
 
 local AvatarCircle = Instance.new("ImageLabel")
-AvatarCircle.Size = UDim2.new(0, 54, 0, 54)
-AvatarCircle.Position = UDim2.new(0, 16, 0.5, -27)
+AvatarCircle.Size = UDim2.new(0, 48, 0, 48)
+AvatarCircle.Position = UDim2.new(0, 14, 0.5, -24)
 AvatarCircle.BackgroundColor3 = Color3.fromRGB(28, 35, 52)
 AvatarCircle.Image = "rbxassetid://10903333338" -- Default stylish icon avatar
 AvatarCircle.BorderSizePixel = 0
@@ -725,30 +743,30 @@ AvCorner.CornerRadius = UDim.new(1, 0)
 AvCorner.Parent = AvatarCircle
 
 local DevName = Instance.new("TextLabel")
-DevName.Size = UDim2.new(0, 200, 0, 20)
-DevName.Position = UDim2.new(0, 82, 0, 22)
+DevName.Size = UDim2.new(0, 200, 0, 18)
+DevName.Position = UDim2.new(0, 72, 0, 14)
 DevName.BackgroundTransparency = 1
 DevName.Text = "Created by feath"
 DevName.TextColor3 = Color3.fromRGB(255, 255, 255)
 DevName.Font = Enum.Font.GothamBold
-DevName.TextSize = 14
+DevName.TextSize = 13
 DevName.TextXAlignment = Enum.TextXAlignment.Left
 DevName.Parent = ProfileCard
 
 local DevRole = Instance.new("TextLabel")
-DevRole.Size = UDim2.new(0, 200, 0, 16)
-DevRole.Position = UDim2.new(0, 82, 0, 44)
+DevRole.Size = UDim2.new(0, 200, 0, 14)
+DevRole.Position = UDim2.new(0, 72, 0, 34)
 DevRole.BackgroundTransparency = 1
 DevRole.Text = "Developer • Combat System Suite"
 DevRole.TextColor3 = Color3.fromRGB(80, 210, 255)
 DevRole.Font = Enum.Font.GothamMedium
-DevRole.TextSize = 11
+DevRole.TextSize = 10
 DevRole.TextXAlignment = Enum.TextXAlignment.Left
 DevRole.Parent = ProfileCard
 
 local DevBadge = Instance.new("TextLabel")
-DevBadge.Size = UDim2.new(0, 75, 0, 18)
-DevBadge.Position = UDim2.new(0, 82, 0, 64)
+DevBadge.Size = UDim2.new(0, 75, 0, 16)
+DevBadge.Position = UDim2.new(0, 72, 0, 52)
 DevBadge.BackgroundColor3 = Color3.fromRGB(30, 42, 68)
 DevBadge.Text = "VERIFIED DEV"
 DevBadge.TextColor3 = Color3.fromRGB(120, 180, 255)
@@ -760,18 +778,266 @@ local DevBadgeCorner = Instance.new("UICorner")
 DevBadgeCorner.CornerRadius = UDim.new(0, 4)
 DevBadgeCorner.Parent = DevBadge
 
--- Info Tambahan di Tab Main
-local HubInfo = Instance.new("TextLabel")
-HubInfo.Size = UDim2.new(1, -28, 0, 40)
-HubInfo.Position = UDim2.new(0, 14, 0, 126)
-HubInfo.BackgroundTransparency = 1
-HubInfo.Text = "Selamat datang di Feath Hub. Buka tab 'Player' untuk mengontrol sistem Auto-Lock Combat, pengaturan jarak, dan opsi penargetan."
-HubInfo.TextColor3 = Color3.fromRGB(150, 155, 170)
-HubInfo.Font = Enum.Font.Gotham
-HubInfo.TextSize = 11
-HubInfo.TextWrapped = true
-HubInfo.TextXAlignment = Enum.TextXAlignment.Left
-HubInfo.Parent = MainTab
+-- Header Section: TELEPORT & TERBANG KE TARGET
+local TPSectionTitle = Instance.new("TextLabel")
+TPSectionTitle.Size = UDim2.new(1, -28, 0, 16)
+TPSectionTitle.Position = UDim2.new(0, 14, 0, 102)
+TPSectionTitle.BackgroundTransparency = 1
+TPSectionTitle.Text = "TELEPORT & TERBANG KE TARGET (PLAYER / BOT):"
+TPSectionTitle.TextColor3 = Color3.fromRGB(80, 210, 255)
+TPSectionTitle.Font = Enum.Font.GothamBold
+TPSectionTitle.TextSize = 10
+TPSectionTitle.TextXAlignment = Enum.TextXAlignment.Left
+TPSectionTitle.Parent = MainTab
+
+-- Label Dropdown Nickname & Tombol Scan Ulang
+local TPDropdownLabel = Instance.new("TextLabel")
+TPDropdownLabel.Size = UDim2.new(0.65, 0, 0, 14)
+TPDropdownLabel.Position = UDim2.new(0, 14, 0, 122)
+TPDropdownLabel.BackgroundTransparency = 1
+TPDropdownLabel.Text = "PILIH TARGET (NICKNAME):"
+TPDropdownLabel.TextColor3 = Color3.fromRGB(150, 155, 170)
+TPDropdownLabel.Font = Enum.Font.GothamMedium
+TPDropdownLabel.TextSize = 10
+TPDropdownLabel.TextXAlignment = Enum.TextXAlignment.Left
+TPDropdownLabel.Parent = MainTab
+
+local TPScanBtn = Instance.new("TextButton")
+TPScanBtn.Size = UDim2.new(0.35, -28, 0, 16)
+TPScanBtn.Position = UDim2.new(0.65, 14, 0, 121)
+TPScanBtn.BackgroundColor3 = Color3.fromRGB(28, 34, 48)
+TPScanBtn.BorderSizePixel = 0
+TPScanBtn.Text = "🔄 SCAN ULANG"
+TPScanBtn.TextColor3 = Color3.fromRGB(90, 200, 255)
+TPScanBtn.Font = Enum.Font.GothamBold
+TPScanBtn.TextSize = 9
+TPScanBtn.Parent = MainTab
+
+local TPScanCorner = Instance.new("UICorner")
+TPScanCorner.CornerRadius = UDim.new(0, 4)
+TPScanCorner.Parent = TPScanBtn
+
+local TPScanStroke = Instance.new("UIStroke")
+TPScanStroke.Thickness = 1
+TPScanStroke.Color = Color3.fromRGB(45, 55, 75)
+TPScanStroke.Parent = TPScanBtn
+
+-- Dropdown Button Target Nickname
+local TPDropdownBtn = Instance.new("TextButton")
+TPDropdownBtn.Size = UDim2.new(1, -28, 0, 26)
+TPDropdownBtn.Position = UDim2.new(0, 14, 0, 140)
+TPDropdownBtn.BackgroundColor3 = Color3.fromRGB(25, 28, 38)
+TPDropdownBtn.BorderSizePixel = 0
+TPDropdownBtn.Font = Enum.Font.Gotham
+TPDropdownBtn.TextSize = 10
+TPDropdownBtn.TextColor3 = Color3.fromRGB(230, 235, 245)
+TPDropdownBtn.TextXAlignment = Enum.TextXAlignment.Left
+TPDropdownBtn.Text = "  ⭐ [Target Terdekat (Auto)]"
+TPDropdownBtn.ZIndex = 20
+TPDropdownBtn.Parent = MainTab
+
+local TPDropdownCorner = Instance.new("UICorner")
+TPDropdownCorner.CornerRadius = UDim.new(0, 6)
+TPDropdownCorner.Parent = TPDropdownBtn
+
+local TPDropdownStroke = Instance.new("UIStroke")
+TPDropdownStroke.Thickness = 1
+TPDropdownStroke.Color = Color3.fromRGB(45, 50, 65)
+TPDropdownStroke.Parent = TPDropdownBtn
+
+local TPArrow = Instance.new("TextLabel")
+TPArrow.Size = UDim2.new(0, 20, 1, 0)
+TPArrow.Position = UDim2.new(1, -25, 0, 0)
+TPArrow.BackgroundTransparency = 1
+TPArrow.Text = "▼"
+TPArrow.TextColor3 = Color3.fromRGB(140, 145, 160)
+TPArrow.Font = Enum.Font.GothamBold
+TPArrow.TextSize = 9
+TPArrow.ZIndex = 20
+TPArrow.Parent = TPDropdownBtn
+
+-- Dropdown List (ScrollingFrame)
+local TPListFrame = Instance.new("ScrollingFrame")
+TPListFrame.Size = UDim2.new(1, -28, 0, 120)
+TPListFrame.Position = UDim2.new(0, 14, 0, 168)
+TPListFrame.BackgroundColor3 = Color3.fromRGB(18, 20, 28)
+TPListFrame.BorderSizePixel = 0
+TPListFrame.ScrollBarThickness = 3
+TPListFrame.ScrollBarImageColor3 = Color3.fromRGB(60, 70, 95)
+TPListFrame.Visible = false
+TPListFrame.ZIndex = 35
+TPListFrame.Parent = MainTab
+
+local TPListCorner = Instance.new("UICorner")
+TPListCorner.CornerRadius = UDim.new(0, 6)
+TPListCorner.Parent = TPListFrame
+
+local TPListStroke = Instance.new("UIStroke")
+TPListStroke.Thickness = 1
+TPListStroke.Color = Color3.fromRGB(60, 65, 80)
+TPListStroke.Parent = TPListFrame
+
+-- Slider Kecepatan Terbang (Fly Speed Slider)
+local FlySliderContainer = Instance.new("Frame")
+FlySliderContainer.Name = "Slider_FlySpeed"
+FlySliderContainer.Size = UDim2.new(1, -28, 0, 48)
+FlySliderContainer.Position = UDim2.new(0, 14, 0, 174)
+FlySliderContainer.BackgroundTransparency = 1
+FlySliderContainer.Parent = MainTab
+
+local FlySliderTitle = Instance.new("TextLabel")
+FlySliderTitle.Size = UDim2.new(0.65, 0, 0, 14)
+FlySliderTitle.Position = UDim2.new(0, 0, 0, 0)
+FlySliderTitle.BackgroundTransparency = 1
+FlySliderTitle.Text = "KECEPATAN TERBANG:"
+FlySliderTitle.TextColor3 = Color3.fromRGB(150, 155, 170)
+FlySliderTitle.Font = Enum.Font.GothamMedium
+FlySliderTitle.TextSize = 10
+FlySliderTitle.TextXAlignment = Enum.TextXAlignment.Left
+FlySliderTitle.Parent = FlySliderContainer
+
+local FlySliderValLabel = Instance.new("TextLabel")
+FlySliderValLabel.Size = UDim2.new(0.35, 0, 0, 14)
+FlySliderValLabel.Position = UDim2.new(0.65, 0, 0, 0)
+FlySliderValLabel.BackgroundTransparency = 1
+FlySliderValLabel.Text = string.format("%d studs/s", Config.FlySpeed)
+FlySliderValLabel.TextColor3 = Color3.fromRGB(0, 185, 255)
+FlySliderValLabel.Font = Enum.Font.GothamBold
+FlySliderValLabel.TextSize = 10
+FlySliderValLabel.TextXAlignment = Enum.TextXAlignment.Right
+FlySliderValLabel.Parent = FlySliderContainer
+
+local FlySliderBar = Instance.new("Frame")
+FlySliderBar.Name = "SliderBar"
+FlySliderBar.Size = UDim2.new(1, 0, 0, 8)
+FlySliderBar.Position = UDim2.new(0, 0, 0, 20)
+FlySliderBar.BackgroundColor3 = Color3.fromRGB(30, 34, 46)
+FlySliderBar.BorderSizePixel = 0
+FlySliderBar.Parent = FlySliderContainer
+
+local FlyBarCorner = Instance.new("UICorner")
+FlyBarCorner.CornerRadius = UDim.new(1, 0)
+FlyBarCorner.Parent = FlySliderBar
+
+local FlySliderFill = Instance.new("Frame")
+local initFlyRatio = math.clamp((Config.FlySpeed - 20) / (350 - 20), 0, 1)
+FlySliderFill.Size = UDim2.new(initFlyRatio, 0, 1, 0)
+FlySliderFill.BackgroundColor3 = Color3.fromRGB(0, 185, 255)
+FlySliderFill.BorderSizePixel = 0
+FlySliderFill.Parent = FlySliderBar
+
+local FlyFillCorner = Instance.new("UICorner")
+FlyFillCorner.CornerRadius = UDim.new(1, 0)
+FlyFillCorner.Parent = FlySliderFill
+
+local FlySliderKnob = Instance.new("Frame")
+FlySliderKnob.Size = UDim2.new(0, 16, 0, 16)
+FlySliderKnob.AnchorPoint = Vector2.new(0.5, 0.5)
+FlySliderKnob.Position = UDim2.new(initFlyRatio, 0, 0.5, 0)
+FlySliderKnob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+FlySliderKnob.BorderSizePixel = 0
+FlySliderKnob.ZIndex = 3
+FlySliderKnob.Parent = FlySliderBar
+
+local FlyKnobCorner = Instance.new("UICorner")
+FlyKnobCorner.CornerRadius = UDim.new(1, 0)
+FlyKnobCorner.Parent = FlySliderKnob
+
+local FlyKnobStroke = Instance.new("UIStroke")
+FlyKnobStroke.Thickness = 1.5
+FlyKnobStroke.Color = Color3.fromRGB(0, 185, 255)
+FlyKnobStroke.Parent = FlySliderKnob
+
+local isFlySliding = false
+local function UpdateFlySlider(inputX)
+    local barAbsolutePos = FlySliderBar.AbsolutePosition.X
+    local barAbsoluteSize = FlySliderBar.AbsoluteSize.X
+    local ratio = math.clamp((inputX - barAbsolutePos) / barAbsoluteSize, 0, 1)
+    local newVal = math.floor(20 + (ratio * (350 - 20)))
+    Config.FlySpeed = newVal
+    FlySliderFill.Size = UDim2.new(ratio, 0, 1, 0)
+    FlySliderKnob.Position = UDim2.new(ratio, 0, 0.5, 0)
+    FlySliderValLabel.Text = string.format("%d studs/s", newVal)
+end
+
+FlySliderBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        isFlySliding = true
+        UpdateFlySlider(input.Position.X)
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if isFlySliding and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        UpdateFlySlider(input.Position.X)
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        isFlySliding = false
+    end
+end)
+
+-- Tombol Teleport & Terbang
+local TPButton = Instance.new("TextButton")
+TPButton.Size = UDim2.new(0.5, -18, 0, 32)
+TPButton.Position = UDim2.new(0, 14, 0, 230)
+TPButton.BackgroundColor3 = Color3.fromRGB(0, 135, 240)
+TPButton.Text = "⚡ TELEPORT"
+TPButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+TPButton.Font = Enum.Font.GothamBold
+TPButton.TextSize = 11
+TPButton.BorderSizePixel = 0
+TPButton.Parent = MainTab
+
+local TPBtnCorner = Instance.new("UICorner")
+TPBtnCorner.CornerRadius = UDim.new(0, 6)
+TPBtnCorner.Parent = TPButton
+
+local FlyButton = Instance.new("TextButton")
+FlyButton.Size = UDim2.new(0.5, -18, 0, 32)
+FlyButton.Position = UDim2.new(0.5, 4, 0, 230)
+FlyButton.BackgroundColor3 = Color3.fromRGB(30, 150, 90)
+FlyButton.Text = "🚀 TERBANG"
+FlyButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+FlyButton.Font = Enum.Font.GothamBold
+FlyButton.TextSize = 11
+FlyButton.BorderSizePixel = 0
+FlyButton.Parent = MainTab
+
+local FlyBtnCorner = Instance.new("UICorner")
+FlyBtnCorner.CornerRadius = UDim.new(0, 6)
+FlyBtnCorner.Parent = FlyButton
+
+-- Status Info Card
+local TPStatusCard = Instance.new("Frame")
+TPStatusCard.Size = UDim2.new(1, -28, 0, 32)
+TPStatusCard.Position = UDim2.new(0, 14, 0, 270)
+TPStatusCard.BackgroundColor3 = Color3.fromRGB(20, 23, 31)
+TPStatusCard.BorderSizePixel = 0
+TPStatusCard.Parent = MainTab
+
+local TPStatusCorner = Instance.new("UICorner")
+TPStatusCorner.CornerRadius = UDim.new(0, 6)
+TPStatusCorner.Parent = TPStatusCard
+
+local TPStatusStroke = Instance.new("UIStroke")
+TPStatusStroke.Thickness = 1
+TPStatusStroke.Color = Color3.fromRGB(35, 40, 55)
+TPStatusStroke.Parent = TPStatusCard
+
+local TPStatusLabel = Instance.new("TextLabel")
+TPStatusLabel.Size = UDim2.new(1, -16, 1, 0)
+TPStatusLabel.Position = UDim2.new(0, 8, 0, 0)
+TPStatusLabel.BackgroundTransparency = 1
+TPStatusLabel.Text = "Status: Siap (Pilih nickname target di atas)"
+TPStatusLabel.TextColor3 = Color3.fromRGB(150, 155, 170)
+TPStatusLabel.Font = Enum.Font.Gotham
+TPStatusLabel.TextSize = 10
+TPStatusLabel.TextWrapped = true
+TPStatusLabel.TextXAlignment = Enum.TextXAlignment.Left
+TPStatusLabel.Parent = TPStatusCard
 
 -- ============================================================================
 -- 2. ISI TAB VISUAL (ENTITY HIGHLIGHT SYSTEM)
@@ -1113,10 +1379,15 @@ CreateDropdown(PlayerTab, "TARGET BODY PART:", 132, {
 end)
 
 CreateDropdown(PlayerTab, "TARGET SWITCH BEHAVIOR:", 184, {
-    { Name = "Auto Ganti (Jika Ada Musuh Lebih Dekat)", Value = "Dynamic" },
+    { Name = "Auto Ganti (Musuh Terdekat)", Value = "Dynamic" },
+    { Name = "Auto Ganti (HP / Darah Terendah)", Value = "LowestHP" },
     { Name = "Menetap (Kunci Sampai Target Mati)", Value = "Persistent" }
 }, Config.TargetSwitchMode, 16, function(val)
     Config.TargetSwitchMode = val
+    if AutoLockEnabled then
+        local best = FindBestTarget()
+        if best then SetTarget(best) end
+    end
 end)
 
 CreateDropdown(PlayerTab, "AIM LOCK MODE:", 236, {
@@ -1372,12 +1643,15 @@ local function GetEnemiesSortedByDistance()
                     if root then
                         local dist = (root.Position - myPos).Magnitude
                         if dist <= Config.MaxLockDistance then
+                            local hum = model:FindFirstChildOfClass("Humanoid")
                             table.insert(enemies, {
                                 Character = model,
                                 Part = root,
                                 Distance = dist,
                                 IsNPC = not isPlayer,
-                                Name = isPlayer and playerObj.DisplayName or model.Name
+                                Name = isPlayer and playerObj.DisplayName or model.Name,
+                                Humanoid = hum,
+                                Health = hum and hum.Health or 100
                             })
                         end
                     end
@@ -1430,7 +1704,22 @@ function FindBestTarget()
         local enemies = GetEnemiesSortedByDistance()
         if #enemies == 0 then return end
 
-        if Config.LockMode == "Distance" then
+        if Config.TargetSwitchMode == "LowestHP" then
+            local lowestHP = math.huge
+            local shortestDist = math.huge
+
+            for _, entry in ipairs(enemies) do
+                local hp = entry.Health or math.huge
+                if hp < lowestHP then
+                    lowestHP = hp
+                    shortestDist = entry.Distance
+                    best = entry
+                elseif math.abs(hp - lowestHP) < 0.5 and entry.Distance < shortestDist then
+                    shortestDist = entry.Distance
+                    best = entry
+                end
+            end
+        elseif Config.LockMode == "Distance" then
             best = enemies[1]
         else
             local mousePos = UserInputService:GetMouseLocation()
@@ -1805,6 +2094,390 @@ local function UpdateVisualHighlights()
     end
 end
 
+-- ============================================================================
+-- LOGIKA TELEPORT & TERBANG KE TARGET (TAB MAIN)
+-- ============================================================================
+local SelectedTPModel = nil
+local SelectedTPName = "Auto"
+local SelectedTPMode = "Auto" -- "Auto", "LowestHP", "Specific"
+local FlyActive = false
+local FlyHeartbeatConn = nil
+local FlyNoclipConn = nil
+
+local function StopFly(customStatus, statusColor)
+    FlyActive = false
+    if FlyHeartbeatConn then
+        FlyHeartbeatConn:Disconnect()
+        FlyHeartbeatConn = nil
+    end
+    if FlyNoclipConn then
+        FlyNoclipConn:Disconnect()
+        FlyNoclipConn = nil
+    end
+    _G.CombatFlyHeartbeat = nil
+    _G.CombatFlyNoclip = nil
+
+    FlyButton.Text = "🚀 TERBANG"
+    FlyButton.BackgroundColor3 = Color3.fromRGB(30, 150, 90)
+    if customStatus then
+        TPStatusLabel.Text = customStatus
+        TPStatusLabel.TextColor3 = statusColor or Color3.fromRGB(220, 220, 150)
+    end
+end
+
+local function ScanTargetsForTP()
+    local list = {}
+    local myChar = LocalPlayer.Character
+    if not myChar then return list end
+    local myRoot = GetTargetPart(myChar)
+    if not myRoot then return list end
+
+    local myPos = myRoot.Position
+    local checked = {}
+
+    local function Evaluate(model)
+        if not model or not model:IsA("Model") or model == myChar or checked[model] then return end
+        checked[model] = true
+
+        if not IsValidEnemy(model) then return end
+
+        local isPlayer, playerObj = IsPlayerCharacter(model)
+        if isPlayer and Config.TeamCheck and IsSameTeam(playerObj) then return end
+
+        local root = GetTargetPart(model)
+        if not root then return end
+
+        local dist = (root.Position - myPos).Magnitude
+        local displayName = isPlayer and (playerObj.DisplayName ~= "" and playerObj.DisplayName or playerObj.Name) or model.Name
+        local hum = model:FindFirstChildOfClass("Humanoid")
+        local hp = hum and math.floor(hum.Health) or 0
+        local maxHp = hum and math.floor(hum.MaxHealth) or 100
+
+        table.insert(list, {
+            Model = model,
+            Root = root,
+            Distance = dist,
+            IsPlayer = isPlayer,
+            Nickname = displayName,
+            Humanoid = hum,
+            Health = hp,
+            MaxHealth = maxHp
+        })
+    end
+
+    -- 1. Scan Player
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character then
+            Evaluate(p.Character)
+        end
+    end
+
+    -- 2. Scan NPC / Bot di Workspace
+    for _, child in ipairs(workspace:GetChildren()) do
+        if child:IsA("Model") then
+            Evaluate(child)
+        elseif child:IsA("Folder") or child:IsA("Model") then
+            local lowerName = string.lower(child.Name)
+            if string.find(lowerName, "npc") or string.find(lowerName, "enemi") 
+               or string.find(lowerName, "mob") or string.find(lowerName, "bot") 
+               or string.find(lowerName, "monster") or string.find(lowerName, "zombie") 
+               or string.find(lowerName, "entity") or string.find(lowerName, "dummy")
+               or string.find(lowerName, "creature") or string.find(lowerName, "spawn") then
+                for _, sub in ipairs(child:GetChildren()) do
+                    if sub:IsA("Model") then
+                        Evaluate(sub)
+                    end
+                end
+            end
+        end
+    end
+
+    table.sort(list, function(a, b)
+        return a.Distance < b.Distance
+    end)
+
+    return list
+end
+
+local function PopulateTPDropdown()
+    for _, c in ipairs(TPListFrame:GetChildren()) do
+        if c:IsA("TextButton") then
+            c:Destroy()
+        end
+    end
+
+    local targets = ScanTargetsForTP()
+    local options = {}
+
+    -- Option 1: Terdekat (Auto)
+    table.insert(options, {
+        Label = "⭐ [Target Terdekat (Auto)]",
+        Nickname = "⭐ [Target Terdekat (Auto)]",
+        Model = nil,
+        Mode = "Auto"
+    })
+
+    -- Option 2: HP Terendah (Auto)
+    table.insert(options, {
+        Label = "🩸 [Target HP Terendah (Auto)]",
+        Nickname = "🩸 [Target HP Terendah (Auto)]",
+        Model = nil,
+        Mode = "LowestHP"
+    })
+
+    -- List target spesifik berdasarkan nickname
+    for _, t in ipairs(targets) do
+        local prefix = t.IsPlayer and "👤 " or "🤖 "
+        local labelText = string.format("%s%s (%d HP | %d studs)", prefix, t.Nickname, t.Health, math.floor(t.Distance))
+        table.insert(options, {
+            Label = labelText,
+            Nickname = prefix .. t.Nickname,
+            Model = t.Model,
+            Mode = "Specific"
+        })
+    end
+
+    local itemHeight = 24
+    TPListFrame.CanvasSize = UDim2.new(0, 0, 0, #options * itemHeight + 4)
+    TPListFrame.Size = UDim2.new(1, -28, 0, math.clamp(#options * itemHeight + 6, 32, 130))
+
+    for idx, opt in ipairs(options) do
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(1, -6, 0, itemHeight - 2)
+        btn.Position = UDim2.new(0, 3, 0, (idx - 1) * itemHeight + 2)
+        btn.BackgroundColor3 = Color3.fromRGB(20, 23, 31)
+        btn.BackgroundTransparency = 1
+        btn.Text = "  " .. opt.Label
+        
+        local isSelected = false
+        if opt.Mode == "Auto" and SelectedTPMode == "Auto" then
+            isSelected = true
+        elseif opt.Mode == "LowestHP" and SelectedTPMode == "LowestHP" then
+            isSelected = true
+        elseif opt.Mode == "Specific" and opt.Model == SelectedTPModel then
+            isSelected = true
+        end
+
+        btn.TextColor3 = isSelected and Color3.fromRGB(80, 210, 255) or Color3.fromRGB(200, 205, 215)
+        btn.Font = Enum.Font.Gotham
+        btn.TextSize = 10
+        btn.TextXAlignment = Enum.TextXAlignment.Left
+        btn.ZIndex = 36
+        btn.Parent = TPListFrame
+
+        local c = Instance.new("UICorner")
+        c.CornerRadius = UDim.new(0, 4)
+        c.Parent = btn
+
+        btn.MouseButton1Click:Connect(function()
+            if opt.Mode == "Auto" then
+                SelectedTPModel = nil
+                SelectedTPName = "Auto"
+                SelectedTPMode = "Auto"
+                TPDropdownBtn.Text = "  ⭐ [Target Terdekat (Auto)]"
+                TPStatusLabel.Text = "Mode Auto: Target terdekat akan dipilih saat aksi"
+                TPStatusLabel.TextColor3 = Color3.fromRGB(80, 210, 255)
+            elseif opt.Mode == "LowestHP" then
+                SelectedTPModel = nil
+                SelectedTPName = "LowestHP"
+                SelectedTPMode = "LowestHP"
+                TPDropdownBtn.Text = "  🩸 [Target HP Terendah (Auto)]"
+                TPStatusLabel.Text = "Mode HP Terendah: Target darah paling sedikit akan dipilih saat aksi"
+                TPStatusLabel.TextColor3 = Color3.fromRGB(255, 120, 120)
+            else
+                SelectedTPModel = opt.Model
+                SelectedTPName = opt.Nickname
+                SelectedTPMode = "Specific"
+                TPDropdownBtn.Text = "  " .. opt.Nickname
+                TPStatusLabel.Text = "Target dipilih: " .. opt.Nickname
+                TPStatusLabel.TextColor3 = Color3.fromRGB(80, 210, 255)
+            end
+
+            TPListFrame.Visible = false
+            TPArrow.Text = "▼"
+            activeDropdownList = nil
+            activeDropdownArrow = nil
+        end)
+    end
+end
+
+local function ResolveActiveTarget()
+    if SelectedTPMode == "Specific" and SelectedTPModel and SelectedTPModel.Parent and IsValidEnemy(SelectedTPModel) then
+        local isPlayer, playerObj = IsPlayerCharacter(SelectedTPModel)
+        local dName = isPlayer and (playerObj.DisplayName ~= "" and playerObj.DisplayName or playerObj.Name) or SelectedTPModel.Name
+        local hum = SelectedTPModel:FindFirstChildOfClass("Humanoid")
+        local hp = hum and math.floor(hum.Health) or 0
+        return SelectedTPModel, dName, hp
+    end
+
+    local targets = ScanTargetsForTP()
+    if #targets == 0 then
+        return nil, nil, nil
+    end
+
+    if SelectedTPMode == "LowestHP" then
+        local lowestTarget = targets[1]
+        for _, t in ipairs(targets) do
+            if t.Health < lowestTarget.Health then
+                lowestTarget = t
+            elseif math.abs(t.Health - lowestTarget.Health) < 0.5 and t.Distance < lowestTarget.Distance then
+                lowestTarget = t
+            end
+        end
+        return lowestTarget.Model, lowestTarget.Nickname, lowestTarget.Health
+    end
+
+    -- Default: Auto Terdekat
+    return targets[1].Model, targets[1].Nickname, targets[1].Health
+end
+
+local function ExecuteTeleport()
+    local targetModel, targetName, targetHp = ResolveActiveTarget()
+    if not targetModel then
+        TPStatusLabel.Text = "Target tidak ditemukan / tidak ada di sekitar!"
+        TPStatusLabel.TextColor3 = Color3.fromRGB(255, 85, 85)
+        return
+    end
+
+    local myChar = LocalPlayer.Character
+    if not myChar then return end
+    local myRoot = GetTargetPart(myChar)
+    local tRoot = GetTargetPart(targetModel)
+    if not myRoot or not tRoot then return end
+
+    -- Reset kecepatan physics agar karakter tidak terlempar
+    pcall(function()
+        myRoot.AssemblyLinearVelocity = Vector3.zero
+        myRoot.AssemblyAngularVelocity = Vector3.zero
+    end)
+
+    -- Tempatkan karakter di posisi aman menghadap target
+    local destCF = tRoot.CFrame * CFrame.new(0, 2.5, 3.5)
+    myRoot.CFrame = destCF
+
+    local hpInfo = targetHp and (" [" .. targetHp .. " HP]") or ""
+    TPStatusLabel.Text = "Teleport berhasil ke: " .. targetName .. hpInfo
+    TPStatusLabel.TextColor3 = Color3.fromRGB(50, 225, 120)
+end
+
+local function ToggleFly()
+    if FlyActive then
+        StopFly("Penerbangan dibatalkan oleh pengguna", Color3.fromRGB(220, 220, 150))
+        return
+    end
+
+    local targetModel, targetName, targetHp = ResolveActiveTarget()
+    if not targetModel then
+        TPStatusLabel.Text = "Target tidak ditemukan untuk terbang!"
+        TPStatusLabel.TextColor3 = Color3.fromRGB(255, 85, 85)
+        return
+    end
+
+    FlyActive = true
+    FlyButton.Text = "⏹ STOP TERBANG"
+    FlyButton.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
+    local hpInfo = targetHp and (" [" .. targetHp .. " HP]") or ""
+    TPStatusLabel.Text = "Terbang ke: " .. targetName .. hpInfo .. "..."
+    TPStatusLabel.TextColor3 = Color3.fromRGB(80, 210, 255)
+
+    -- Aktifkan Noclip agar karakter tidak nyangkut dinding/bangunan
+    FlyNoclipConn = RunService.Stepped:Connect(function()
+        local c = LocalPlayer.Character
+        if c then
+            for _, p in ipairs(c:GetDescendants()) do
+                if p:IsA("BasePart") and p.CanCollide then
+                    p.CanCollide = false
+                end
+            end
+        end
+    end)
+    _G.CombatFlyNoclip = FlyNoclipConn
+
+    FlyHeartbeatConn = RunService.Heartbeat:Connect(function(dt)
+        local myChar = LocalPlayer.Character
+        if not myChar or not myChar.Parent then
+            StopFly()
+            return
+        end
+        local myRoot = GetTargetPart(myChar)
+        if not myRoot then
+            StopFly()
+            return
+        end
+
+        if not targetModel or not targetModel.Parent or not IsValidEnemy(targetModel) then
+            StopFly("Target hilang atau telah mati!", Color3.fromRGB(255, 85, 85))
+            return
+        end
+
+        local tRoot = GetTargetPart(targetModel)
+        if not tRoot then
+            StopFly()
+            return
+        end
+
+        local targetPos = tRoot.Position + Vector3.new(0, 2, 0)
+        local diff = targetPos - myRoot.Position
+        local dist = diff.Magnitude
+
+        if dist <= 4.5 then
+            StopFly("Sampai di target: " .. targetName, Color3.fromRGB(50, 225, 120))
+            return
+        end
+
+        local step = math.min(dist, Config.FlySpeed * dt)
+        local nextPos = myRoot.Position + (diff.Unit * step)
+
+        pcall(function()
+            myRoot.AssemblyLinearVelocity = Vector3.zero
+            myRoot.AssemblyAngularVelocity = Vector3.zero
+            myRoot.CFrame = CFrame.lookAt(nextPos, targetPos)
+        end)
+
+        TPStatusLabel.Text = string.format("Terbang ke [%s] (%.0f studs | Speed: %d)", targetName, dist, Config.FlySpeed)
+    end)
+    _G.CombatFlyHeartbeat = FlyHeartbeatConn
+end
+
+-- Event Listeners Tombol Teleport & Terbang di Tab Main
+TPScanBtn.MouseButton1Click:Connect(function()
+    pcall(function()
+        PopulateTPDropdown()
+        TPStatusLabel.Text = "Target berhasil di-scan ulang!"
+        TPStatusLabel.TextColor3 = Color3.fromRGB(80, 210, 255)
+    end)
+end)
+
+TPDropdownBtn.MouseButton1Click:Connect(function()
+    if TPListFrame.Visible then
+        TPListFrame.Visible = false
+        TPArrow.Text = "▼"
+        if activeDropdownList == TPListFrame then
+            activeDropdownList = nil
+            activeDropdownArrow = nil
+        end
+    else
+        CloseAllDropdowns()
+        PopulateTPDropdown()
+        TPListFrame.Visible = true
+        TPArrow.Text = "▲"
+        activeDropdownList = TPListFrame
+        activeDropdownArrow = TPArrow
+    end
+end)
+
+TPButton.MouseButton1Click:Connect(function()
+    pcall(ExecuteTeleport)
+end)
+
+FlyButton.MouseButton1Click:Connect(function()
+    pcall(ToggleFly)
+end)
+
+LocalPlayer.CharacterAdded:Connect(function()
+    StopFly()
+end)
+
 -- Event Listeners (Tombol UI)
 ToggleButton.MouseButton1Click:Connect(function()
     pcall(ToggleAutoLock)
@@ -1861,6 +2534,26 @@ RunService.RenderStepped:Connect(function(dt)
                 elseif bestTarget and bestTarget.Character ~= CurrentTargetChar then
                     local newDist = (bestTarget.Part.Position - myRoot.Position).Magnitude
                     if newDist < (curDist - Config.SwitchDistanceMargin) then
+                        SetTarget(bestTarget)
+                    end
+                end
+            end
+        elseif Config.TargetSwitchMode == "LowestHP" then
+            local bestTarget = FindBestTarget()
+
+            if not CurrentTargetChar or not CurrentTargetPart or not IsValidEnemy(CurrentTargetChar) then
+                SetTarget(bestTarget)
+            else
+                local curDist = (CurrentTargetPart.Position - myRoot.Position).Magnitude
+                if curDist > Config.BreakDistance then
+                    SetTarget(bestTarget)
+                elseif bestTarget and bestTarget.Character ~= CurrentTargetChar then
+                    local curHum = CurrentTargetChar:FindFirstChildOfClass("Humanoid")
+                    local curHP = curHum and curHum.Health or math.huge
+                    local newHP = bestTarget.Health or math.huge
+
+                    -- Ganti target jika ada musuh dengan HP lebih rendah di dalam radius
+                    if newHP < (curHP - 2) then
                         SetTarget(bestTarget)
                     end
                 end
