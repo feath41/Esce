@@ -90,11 +90,11 @@ ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 pcall(function() ScreenGui.Parent = SafeParent end)
 
--- Main Frame (Ukuran dinamis untuk menampung 4 dropdown)
+-- Main Frame (Ukuran dinamis untuk menampung Slider Jarak + 4 Dropdown)
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 255, 0, 360)
-MainFrame.Position = UDim2.new(0, 20, 0.5, -180)
+MainFrame.Size = UDim2.new(0, 255, 0, 415)
+MainFrame.Position = UDim2.new(0, 20, 0.5, -207)
 MainFrame.BackgroundColor3 = Color3.fromRGB(20, 22, 28)
 MainFrame.BackgroundTransparency = 0.05
 MainFrame.BorderSizePixel = 0
@@ -449,6 +449,123 @@ CreateDropdown(MainFrame, "TEAM FILTER (TEAM CHECK):", 300, {
     if AutoLockEnabled then
         local best = FindBestTarget()
         SetTarget(best)
+    end
+end)
+
+-- ============================================================================
+-- SLIDER PENGATUR JARAK (MAX LOCK DISTANCE + AUTO BREAK DISTANCE)
+-- ============================================================================
+local MinDistance = 20
+local MaxDistance = 300
+
+-- Pastikan BreakDistance otomatis mengikuti MaxLockDistance + 20
+Config.BreakDistance = Config.MaxLockDistance + 20
+
+local SliderContainer = Instance.new("Frame")
+SliderContainer.Name = "SliderContainer"
+SliderContainer.Size = UDim2.new(1, -20, 0, 48)
+SliderContainer.Position = UDim2.new(0, 10, 0, 356)
+SliderContainer.BackgroundTransparency = 1
+SliderContainer.Parent = MainFrame
+
+local SliderTitle = Instance.new("TextLabel")
+SliderTitle.Size = UDim2.new(0.65, 0, 0, 14)
+SliderTitle.Position = UDim2.new(0, 0, 0, 0)
+SliderTitle.BackgroundTransparency = 1
+SliderTitle.Text = "JARAK DETEKSI (STUDS):"
+SliderTitle.TextColor3 = Color3.fromRGB(150, 155, 170)
+SliderTitle.Font = Enum.Font.GothamMedium
+SliderTitle.TextSize = 10
+SliderTitle.TextXAlignment = Enum.TextXAlignment.Left
+SliderTitle.Parent = SliderContainer
+
+local SliderValueLabel = Instance.new("TextLabel")
+SliderValueLabel.Size = UDim2.new(0.35, 0, 0, 14)
+SliderValueLabel.Position = UDim2.new(0.65, 0, 0, 0)
+SliderValueLabel.BackgroundTransparency = 1
+SliderValueLabel.Text = string.format("%d studs (Break: %d)", Config.MaxLockDistance, Config.BreakDistance)
+SliderValueLabel.TextColor3 = Color3.fromRGB(80, 210, 255)
+SliderValueLabel.Font = Enum.Font.GothamBold
+SliderValueLabel.TextSize = 10
+SliderValueLabel.TextXAlignment = Enum.TextXAlignment.Right
+SliderValueLabel.Parent = SliderContainer
+
+local SliderBar = Instance.new("Frame")
+SliderBar.Name = "SliderBar"
+SliderBar.Size = UDim2.new(1, 0, 0, 8)
+SliderBar.Position = UDim2.new(0, 0, 0, 20)
+SliderBar.BackgroundColor3 = Color3.fromRGB(32, 35, 45)
+SliderBar.BorderSizePixel = 0
+SliderBar.Parent = SliderContainer
+
+local SliderBarCorner = Instance.new("UICorner")
+SliderBarCorner.CornerRadius = UDim.new(1, 0)
+SliderBarCorner.Parent = SliderBar
+
+local SliderFill = Instance.new("Frame")
+SliderFill.Name = "SliderFill"
+local initialRatio = math.clamp((Config.MaxLockDistance - MinDistance) / (MaxDistance - MinDistance), 0, 1)
+SliderFill.Size = UDim2.new(initialRatio, 0, 1, 0)
+SliderFill.BackgroundColor3 = Color3.fromRGB(0, 140, 255)
+SliderFill.BorderSizePixel = 0
+SliderFill.Parent = SliderBar
+
+local SliderFillCorner = Instance.new("UICorner")
+SliderFillCorner.CornerRadius = UDim.new(1, 0)
+SliderFillCorner.Parent = SliderFill
+
+local SliderKnob = Instance.new("Frame")
+SliderKnob.Name = "SliderKnob"
+SliderKnob.Size = UDim2.new(0, 16, 0, 16)
+SliderKnob.AnchorPoint = Vector2.new(0.5, 0.5)
+SliderKnob.Position = UDim2.new(initialRatio, 0, 0.5, 0)
+SliderKnob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+SliderKnob.BorderSizePixel = 0
+SliderKnob.ZIndex = 3
+SliderKnob.Parent = SliderBar
+
+local KnobCorner = Instance.new("UICorner")
+KnobCorner.CornerRadius = UDim.new(1, 0)
+KnobCorner.Parent = SliderKnob
+
+local KnobStroke = Instance.new("UIStroke")
+KnobStroke.Thickness = 1.5
+KnobStroke.Color = Color3.fromRGB(0, 140, 255)
+KnobStroke.Parent = SliderKnob
+
+-- Logika Slider (Mendukung Touch HP & Mouse Click/Drag)
+local isSliding = false
+
+local function UpdateSlider(inputX)
+    local barAbsolutePos = SliderBar.AbsolutePosition.X
+    local barAbsoluteSize = SliderBar.AbsoluteSize.X
+    local ratio = math.clamp((inputX - barAbsolutePos) / barAbsoluteSize, 0, 1)
+    
+    local newDistance = math.floor(MinDistance + (ratio * (MaxDistance - MinDistance)))
+    Config.MaxLockDistance = newDistance
+    Config.BreakDistance = newDistance + 20 -- Otomatis mengikuti maxlockdistance + 20
+    
+    SliderFill.Size = UDim2.new(ratio, 0, 1, 0)
+    SliderKnob.Position = UDim2.new(ratio, 0, 0.5, 0)
+    SliderValueLabel.Text = string.format("%d studs (Break: %d)", newDistance, Config.BreakDistance)
+end
+
+SliderBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        isSliding = true
+        UpdateSlider(input.Position.X)
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if isSliding and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        UpdateSlider(input.Position.X)
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        isSliding = false
     end
 end)
 
