@@ -48,7 +48,30 @@ local Config = {
     UnlockedOutlineColor = Color3.fromRGB(255, 255, 255),
 
     -- Konfigurasi Teleport & Terbang
-    FlySpeed = 120                 -- Kecepatan terbang ke target (studs/detik)
+    FlySpeed = 120,                -- Kecepatan terbang ke target (studs/detik)
+
+    -- Konfigurasi Bullet Tracking & Silent Aim
+    BulletTrackingEnabled = false,
+    BulletTargetSource = "AimLock", -- "AimLock", "MouseFOV", "Closest"
+    BulletTargetPart = "Head",      -- "Head", "Torso", "Auto", "Random"
+    BulletHitChance = 100,          -- 1 - 100%
+    BulletPrediction = true,        -- true / false
+    BulletPredictionFactor = 0.13,  -- Waktu kompensasi delay (lead bullet)
+    BulletHomingProjectiles = true, -- Belokkan peluru fisik / projectile di workspace
+    BulletUseFOV = true,            -- Batasi peluru dalam FOV
+    BulletShowFOVCircle = true,     -- Tampilkan lingkaran FOV
+    BulletFOVRadius = 180,          -- Radius lingkaran FOV (pixel)
+    BulletFOVCircleColor = Color3.fromRGB(0, 180, 255),
+    BulletTracerEnabled = true,     -- Visual laser beam saat tracking
+    BulletTracerColor = Color3.fromRGB(0, 225, 255),
+    BulletToggleKey = Enum.KeyCode.T,
+
+    -- Konfigurasi Auto Shoot (TriggerBot & Wall Check)
+    AutoShootEnabled = false,       -- Menembak otomatis saat musuh di FOV / Aim Lock
+    AutoShootWallCheck = true,     -- Cek tembok: hanya tembak jika tidak ada halangan
+    AutoShootMode = "All",         -- "All" (Aim Lock + FOV), "FOV", "AimLock"
+    AutoShootDelayMs = 100,        -- Jeda tembak (ms): 50 - 500 ms
+    AutoShootKey = Enum.KeyCode.G
 }
 
 Config.BreakDistance = Config.MaxLockDistance + 20
@@ -58,6 +81,9 @@ local AutoLockEnabled = false
 local CurrentTargetPart = nil
 local CurrentTargetChar = nil
 local CurrentTargetIsNPC = false
+
+-- Simpan config ke _G untuk akses hook metamethod
+_G.FeathCombatConfig = Config
 
 -- ============================================================================
 -- PENGATURAN PARENT GUI AMAN
@@ -83,6 +109,7 @@ local SafeParent = GetSafeGuiParent()
 pcall(function()
     if _G.CombatFlyHeartbeat then _G.CombatFlyHeartbeat:Disconnect() _G.CombatFlyHeartbeat = nil end
     if _G.CombatFlyNoclip then _G.CombatFlyNoclip:Disconnect() _G.CombatFlyNoclip = nil end
+    if _G.CombatBulletProjectileConn then _G.CombatBulletProjectileConn:Disconnect() _G.CombatBulletProjectileConn = nil end
     local oldGui = SafeParent:FindFirstChild("CombatTargetGui")
     if oldGui then oldGui:Destroy() end
     local oldHighlight = game:FindFirstChild("CombatTargetHitboxHighlight", true)
@@ -90,7 +117,9 @@ pcall(function()
     local oldBox = game:FindFirstChild("CombatTargetHitboxBox", true)
     if oldBox then oldBox:Destroy() end
     for _, v in ipairs(workspace:GetDescendants()) do
-        if (v.Name == "CombatUnlockedHighlight" and v:IsA("Highlight")) or (v.Name == "CombatHighlightInfoBB" and v:IsA("BillboardGui")) then
+        if (v.Name == "CombatUnlockedHighlight" and v:IsA("Highlight")) 
+           or (v.Name == "CombatHighlightInfoBB" and v:IsA("BillboardGui")) 
+           or (v.Name == "CombatBulletTracer") then
             v:Destroy()
         end
     end
@@ -104,6 +133,25 @@ ScreenGui.Name = "CombatTargetGui"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 pcall(function() ScreenGui.Parent = SafeParent end)
+
+-- Lingkaran FOV (Field of View) untuk Bullet Tracking
+local FOVCircle = Instance.new("Frame")
+FOVCircle.Name = "CombatBulletFOVCircle"
+FOVCircle.AnchorPoint = Vector2.new(0.5, 0.5)
+FOVCircle.BackgroundTransparency = 1
+FOVCircle.Visible = false
+FOVCircle.ZIndex = 40
+FOVCircle.Parent = ScreenGui
+
+local FOVCorner = Instance.new("UICorner")
+FOVCorner.CornerRadius = UDim.new(1, 0)
+FOVCorner.Parent = FOVCircle
+
+local FOVStroke = Instance.new("UIStroke")
+FOVStroke.Thickness = 1.5
+FOVStroke.Color = Config.BulletFOVCircleColor
+FOVStroke.Transparency = 0.35
+FOVStroke.Parent = FOVCircle
 
 -- 1. Collapsed Bar / Title Bar Only (Non-draggable, stays fixed at top)
 local CollapsedBar = Instance.new("Frame")
@@ -333,7 +381,7 @@ local VersionBadge = Instance.new("TextLabel")
 VersionBadge.Size = UDim2.new(0, 30, 0, 16)
 VersionBadge.Position = UDim2.new(0, 142, 0, 12)
 VersionBadge.BackgroundTransparency = 1
-VersionBadge.Text = "v2.4"
+VersionBadge.Text = "v2.6"
 VersionBadge.TextColor3 = Color3.fromRGB(120, 150, 200)
 VersionBadge.Font = Enum.Font.Gotham
 VersionBadge.TextSize = 11
@@ -505,6 +553,7 @@ end
 
 local MainTab = CreateTabFrame("Main")
 local PlayerTab = CreateTabFrame("Player")
+local TrackingTab = CreateTabFrame("Tracking")
 local VisualTab = CreateTabFrame("Visual")
 local SettingsTab = CreateTabFrame("Settings")
 
@@ -513,6 +562,7 @@ local NavButtons = {}
 local TabList = {
     { Name = "Main", Icon = "🏠" },
     { Name = "Player", Icon = "👤" },
+    { Name = "Tracking", Icon = "🎯" },
     { Name = "Visual", Icon = "👁" },
     { Name = "Settings", Icon = "⚙" }
 }
@@ -537,7 +587,7 @@ for idx, item in ipairs(TabList) do
     local btn = Instance.new("TextButton")
     btn.Name = item.Name .. "NavBtn"
     btn.Size = UDim2.new(1, -16, 0, 32)
-    btn.Position = UDim2.new(0, 8, 0, 12 + (idx - 1) * 38)
+    btn.Position = UDim2.new(0, 8, 0, 10 + (idx - 1) * 36)
     btn.BackgroundColor3 = Color3.fromRGB(18, 20, 27)
     btn.Text = "  " .. item.Icon .. "  " .. item.Name
     btn.TextColor3 = Color3.fromRGB(150, 155, 170)
@@ -704,6 +754,115 @@ local function CreateDropdown(parent, labelText, yPos, options, defaultKey, zInd
     end)
 
     return dButton
+end
+
+-- HELPER PEMBUAT SLIDER UMUM (PERSEN, PIXEL, STUDS)
+local function CreateGeneralSlider(parent, titleText, yPos, configKey, minVal, maxVal, unitStr, accentColor, onChange)
+    local SliderContainer = Instance.new("Frame")
+    SliderContainer.Name = "Slider_" .. configKey
+    SliderContainer.Size = UDim2.new(1, -28, 0, 48)
+    SliderContainer.Position = UDim2.new(0, 14, 0, yPos)
+    SliderContainer.BackgroundTransparency = 1
+    SliderContainer.Parent = parent
+
+    local SliderTitle = Instance.new("TextLabel")
+    SliderTitle.Size = UDim2.new(0.65, 0, 0, 14)
+    SliderTitle.Position = UDim2.new(0, 0, 0, 0)
+    SliderTitle.BackgroundTransparency = 1
+    SliderTitle.Text = titleText
+    SliderTitle.TextColor3 = Color3.fromRGB(150, 155, 170)
+    SliderTitle.Font = Enum.Font.GothamMedium
+    SliderTitle.TextSize = 10
+    SliderTitle.TextXAlignment = Enum.TextXAlignment.Left
+    SliderTitle.Parent = SliderContainer
+
+    local SliderValueLabel = Instance.new("TextLabel")
+    SliderValueLabel.Size = UDim2.new(0.35, 0, 0, 14)
+    SliderValueLabel.Position = UDim2.new(0.65, 0, 0, 0)
+    SliderValueLabel.BackgroundTransparency = 1
+    local fmt = (unitStr == "%" and "%d%%") or (unitStr == "px" and "%d px") or string.format("%%d %s", unitStr or "")
+    SliderValueLabel.Text = string.format(fmt, Config[configKey])
+    SliderValueLabel.TextColor3 = accentColor or Color3.fromRGB(80, 210, 255)
+    SliderValueLabel.Font = Enum.Font.GothamBold
+    SliderValueLabel.TextSize = 10
+    SliderValueLabel.TextXAlignment = Enum.TextXAlignment.Right
+    SliderValueLabel.Parent = SliderContainer
+
+    local SliderBar = Instance.new("Frame")
+    SliderBar.Name = "SliderBar"
+    SliderBar.Size = UDim2.new(1, 0, 0, 8)
+    SliderBar.Position = UDim2.new(0, 0, 0, 20)
+    SliderBar.BackgroundColor3 = Color3.fromRGB(30, 34, 46)
+    SliderBar.BorderSizePixel = 0
+    SliderBar.Parent = SliderContainer
+
+    local SliderBarCorner = Instance.new("UICorner")
+    SliderBarCorner.CornerRadius = UDim.new(1, 0)
+    SliderBarCorner.Parent = SliderBar
+
+    local SliderFill = Instance.new("Frame")
+    local initRatio = math.clamp((Config[configKey] - minVal) / (maxVal - minVal), 0, 1)
+    SliderFill.Size = UDim2.new(initRatio, 0, 1, 0)
+    SliderFill.BackgroundColor3 = accentColor or Color3.fromRGB(0, 140, 255)
+    SliderFill.BorderSizePixel = 0
+    SliderFill.Parent = SliderBar
+
+    local SliderFillCorner = Instance.new("UICorner")
+    SliderFillCorner.CornerRadius = UDim.new(1, 0)
+    SliderFillCorner.Parent = SliderFill
+
+    local SliderKnob = Instance.new("Frame")
+    SliderKnob.Size = UDim2.new(0, 16, 0, 16)
+    SliderKnob.AnchorPoint = Vector2.new(0.5, 0.5)
+    SliderKnob.Position = UDim2.new(initRatio, 0, 0.5, 0)
+    SliderKnob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    SliderKnob.BorderSizePixel = 0
+    SliderKnob.ZIndex = 3
+    SliderKnob.Parent = SliderBar
+
+    local KnobCorner = Instance.new("UICorner")
+    KnobCorner.CornerRadius = UDim.new(1, 0)
+    KnobCorner.Parent = SliderKnob
+
+    local KnobStroke = Instance.new("UIStroke")
+    KnobStroke.Thickness = 1.5
+    KnobStroke.Color = accentColor or Color3.fromRGB(0, 140, 255)
+    KnobStroke.Parent = SliderKnob
+
+    local isSliding = false
+
+    local function UpdateVal(inputX)
+        local barAbsolutePos = SliderBar.AbsolutePosition.X
+        local barAbsoluteSize = SliderBar.AbsoluteSize.X
+        local ratio = math.clamp((inputX - barAbsolutePos) / barAbsoluteSize, 0, 1)
+
+        local newVal = math.floor(minVal + (ratio * (maxVal - minVal)))
+        Config[configKey] = newVal
+
+        SliderFill.Size = UDim2.new(ratio, 0, 1, 0)
+        SliderKnob.Position = UDim2.new(ratio, 0, 0.5, 0)
+        SliderValueLabel.Text = string.format(fmt, newVal)
+        if onChange then onChange(newVal) end
+    end
+
+    SliderBar.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            isSliding = true
+            UpdateVal(input.Position.X)
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if isSliding and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            UpdateVal(input.Position.X)
+        end
+    end)
+
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            isSliding = false
+        end
+    end)
 end
 
 -- ============================================================================
@@ -1142,123 +1301,301 @@ end)
 
 -- Helper Pembuat Slider Sumbu X, Y, Z di Tab Visual
 local function CreateAxisSlider(parent, titleText, yPos, configKey, minVal, maxVal, accentColor)
-    local SliderContainer = Instance.new("Frame")
-    SliderContainer.Name = "Slider_" .. configKey
-    SliderContainer.Size = UDim2.new(1, -28, 0, 48)
-    SliderContainer.Position = UDim2.new(0, 14, 0, yPos)
-    SliderContainer.BackgroundTransparency = 1
-    SliderContainer.Parent = parent
-
-    local SliderTitle = Instance.new("TextLabel")
-    SliderTitle.Size = UDim2.new(0.68, 0, 0, 14)
-    SliderTitle.Position = UDim2.new(0, 0, 0, 0)
-    SliderTitle.BackgroundTransparency = 1
-    SliderTitle.Text = titleText
-    SliderTitle.TextColor3 = Color3.fromRGB(150, 155, 170)
-    SliderTitle.Font = Enum.Font.GothamMedium
-    SliderTitle.TextSize = 10
-    SliderTitle.TextXAlignment = Enum.TextXAlignment.Left
-    SliderTitle.Parent = SliderContainer
-
-    local SliderValueLabel = Instance.new("TextLabel")
-    SliderValueLabel.Size = UDim2.new(0.32, 0, 0, 14)
-    SliderValueLabel.Position = UDim2.new(0.68, 0, 0, 0)
-    SliderValueLabel.BackgroundTransparency = 1
-    SliderValueLabel.Text = string.format("%d studs", Config[configKey])
-    SliderValueLabel.TextColor3 = accentColor
-    SliderValueLabel.Font = Enum.Font.GothamBold
-    SliderValueLabel.TextSize = 10
-    SliderValueLabel.TextXAlignment = Enum.TextXAlignment.Right
-    SliderValueLabel.Parent = SliderContainer
-
-    local SliderBar = Instance.new("Frame")
-    SliderBar.Name = "SliderBar"
-    SliderBar.Size = UDim2.new(1, 0, 0, 8)
-    SliderBar.Position = UDim2.new(0, 0, 0, 20)
-    SliderBar.BackgroundColor3 = Color3.fromRGB(30, 34, 46)
-    SliderBar.BorderSizePixel = 0
-    SliderBar.Parent = SliderContainer
-
-    local SliderBarCorner = Instance.new("UICorner")
-    SliderBarCorner.CornerRadius = UDim.new(1, 0)
-    SliderBarCorner.Parent = SliderBar
-
-    local SliderFill = Instance.new("Frame")
-    local initRatio = math.clamp((Config[configKey] - minVal) / (maxVal - minVal), 0, 1)
-    SliderFill.Size = UDim2.new(initRatio, 0, 1, 0)
-    SliderFill.BackgroundColor3 = accentColor
-    SliderFill.BorderSizePixel = 0
-    SliderFill.Parent = SliderBar
-
-    local SliderFillCorner = Instance.new("UICorner")
-    SliderFillCorner.CornerRadius = UDim.new(1, 0)
-    SliderFillCorner.Parent = SliderFill
-
-    local SliderKnob = Instance.new("Frame")
-    SliderKnob.Size = UDim2.new(0, 16, 0, 16)
-    SliderKnob.AnchorPoint = Vector2.new(0.5, 0.5)
-    SliderKnob.Position = UDim2.new(initRatio, 0, 0.5, 0)
-    SliderKnob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-    SliderKnob.BorderSizePixel = 0
-    SliderKnob.ZIndex = 3
-    SliderKnob.Parent = SliderBar
-
-    local KnobCorner = Instance.new("UICorner")
-    KnobCorner.CornerRadius = UDim.new(1, 0)
-    KnobCorner.Parent = SliderKnob
-
-    local KnobStroke = Instance.new("UIStroke")
-    KnobStroke.Thickness = 1.5
-    KnobStroke.Color = accentColor
-    KnobStroke.Parent = SliderKnob
-
-    local isSliding = false
-
-    local function UpdateVal(inputX)
-        local barAbsolutePos = SliderBar.AbsolutePosition.X
-        local barAbsoluteSize = SliderBar.AbsoluteSize.X
-        local ratio = math.clamp((inputX - barAbsolutePos) / barAbsoluteSize, 0, 1)
-
-        local newVal = math.floor(minVal + (ratio * (maxVal - minVal)))
-        Config[configKey] = newVal
-
-        SliderFill.Size = UDim2.new(ratio, 0, 1, 0)
-        SliderKnob.Position = UDim2.new(ratio, 0, 0.5, 0)
-        SliderValueLabel.Text = string.format("%d studs", newVal)
-    end
-
-    SliderBar.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            isSliding = true
-            UpdateVal(input.Position.X)
-        end
-    end)
-
-    UserInputService.InputChanged:Connect(function(input)
-        if isSliding and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-            UpdateVal(input.Position.X)
-        end
-    end)
-
-    UserInputService.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            isSliding = false
-        end
-    end)
+    CreateGeneralSlider(parent, titleText, yPos, configKey, minVal, maxVal, "studs", accentColor)
 end
 
 CreateAxisSlider(VisualTab, "RADIUS X (KANAN - KIRI):", 182, "HighlightRadiusX", 20, 1500, Color3.fromRGB(255, 120, 80))
 CreateAxisSlider(VisualTab, "RADIUS Y (ATAS - BAWAH):", 236, "HighlightRadiusY", 20, 1000, Color3.fromRGB(80, 220, 150))
 CreateAxisSlider(VisualTab, "RADIUS Z (DEPAN - BELAKANG):", 290, "HighlightRadiusZ", 20, 1500, Color3.fromRGB(80, 190, 255))
 
-local EmptySettingsLabel = Instance.new("TextLabel")
-EmptySettingsLabel.Size = UDim2.new(1, 0, 1, 0)
-EmptySettingsLabel.BackgroundTransparency = 1
-EmptySettingsLabel.Text = "Pengaturan Umum (Kosong)."
-EmptySettingsLabel.TextColor3 = Color3.fromRGB(100, 105, 120)
-EmptySettingsLabel.Font = Enum.Font.GothamMedium
-EmptySettingsLabel.TextSize = 12
-EmptySettingsLabel.Parent = SettingsTab
+-- ============================================================================
+-- 3. ISI TAB TRACKING (BULLET TRACKING & SILENT AIM)
+-- ============================================================================
+TrackingTab.CanvasSize = UDim2.new(0, 0, 0, 785)
+
+local TrackingSectionTitle = Instance.new("TextLabel")
+TrackingSectionTitle.Size = UDim2.new(1, -28, 0, 18)
+TrackingSectionTitle.Position = UDim2.new(0, 14, 0, 10)
+TrackingSectionTitle.BackgroundTransparency = 1
+TrackingSectionTitle.Text = "BULLET TRACKING & SILENT AIM"
+TrackingSectionTitle.TextColor3 = Color3.fromRGB(120, 130, 150)
+TrackingSectionTitle.Font = Enum.Font.GothamBold
+TrackingSectionTitle.TextSize = 10
+TrackingSectionTitle.TextXAlignment = Enum.TextXAlignment.Left
+TrackingSectionTitle.Parent = TrackingTab
+
+-- Info Card Tracking
+local TrackingInfoCard = Instance.new("Frame")
+TrackingInfoCard.Size = UDim2.new(1, -28, 0, 54)
+TrackingInfoCard.Position = UDim2.new(0, 14, 0, 30)
+TrackingInfoCard.BackgroundColor3 = Color3.fromRGB(18, 21, 29)
+TrackingInfoCard.BorderSizePixel = 0
+TrackingInfoCard.Parent = TrackingTab
+
+local TrackingInfoCorner = Instance.new("UICorner")
+TrackingInfoCorner.CornerRadius = UDim.new(0, 6)
+TrackingInfoCorner.Parent = TrackingInfoCard
+
+local TrackingInfoStroke = Instance.new("UIStroke")
+TrackingInfoStroke.Thickness = 1
+TrackingInfoStroke.Color = Color3.fromRGB(35, 40, 55)
+TrackingInfoStroke.Parent = TrackingInfoCard
+
+local TrackingStatusLabel = Instance.new("TextLabel")
+TrackingStatusLabel.Size = UDim2.new(1, -120, 0, 16)
+TrackingStatusLabel.Position = UDim2.new(0, 10, 0, 7)
+TrackingStatusLabel.BackgroundTransparency = 1
+TrackingStatusLabel.Text = "Status: Fitur Nonaktif"
+TrackingStatusLabel.TextColor3 = Color3.fromRGB(160, 165, 180)
+TrackingStatusLabel.Font = Enum.Font.GothamMedium
+TrackingStatusLabel.TextSize = 11
+TrackingStatusLabel.TextXAlignment = Enum.TextXAlignment.Left
+TrackingStatusLabel.Parent = TrackingInfoCard
+
+local TrackingTargetLabel = Instance.new("TextLabel")
+TrackingTargetLabel.Size = UDim2.new(1, -16, 0, 14)
+TrackingTargetLabel.Position = UDim2.new(0, 10, 0, 27)
+TrackingTargetLabel.BackgroundTransparency = 1
+TrackingTargetLabel.Text = "Target: Menunggu tembakan / Aim Lock..."
+TrackingTargetLabel.TextColor3 = Color3.fromRGB(130, 135, 150)
+TrackingTargetLabel.Font = Enum.Font.Gotham
+TrackingTargetLabel.TextSize = 10
+TrackingTargetLabel.TextXAlignment = Enum.TextXAlignment.Left
+TrackingTargetLabel.Parent = TrackingInfoCard
+
+local TrackingMethodBadge = Instance.new("TextLabel")
+TrackingMethodBadge.Size = UDim2.new(0, 105, 0, 14)
+TrackingMethodBadge.Position = UDim2.new(1, -112, 0, 8)
+TrackingMethodBadge.BackgroundTransparency = 1
+TrackingMethodBadge.Text = "Silent Aim + Homing"
+TrackingMethodBadge.TextColor3 = Color3.fromRGB(0, 180, 255)
+TrackingMethodBadge.Font = Enum.Font.GothamBold
+TrackingMethodBadge.TextSize = 9
+TrackingMethodBadge.TextXAlignment = Enum.TextXAlignment.Right
+TrackingMethodBadge.Parent = TrackingInfoCard
+
+-- Tombol Toggle Tracking ON/OFF
+local TrackingToggleButton = Instance.new("TextButton")
+TrackingToggleButton.Size = UDim2.new(1, -28, 0, 30)
+TrackingToggleButton.Position = UDim2.new(0, 14, 0, 92)
+TrackingToggleButton.BackgroundColor3 = Color3.fromRGB(0, 135, 240)
+TrackingToggleButton.Text = "NYALAKAN TRACKING (T)"
+TrackingToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+TrackingToggleButton.Font = Enum.Font.GothamBold
+TrackingToggleButton.TextSize = 11
+TrackingToggleButton.BorderSizePixel = 0
+TrackingToggleButton.Parent = TrackingTab
+
+local TrackingToggleCorner = Instance.new("UICorner")
+TrackingToggleCorner.CornerRadius = UDim.new(0, 6)
+TrackingToggleCorner.Parent = TrackingToggleButton
+
+-- Dropdowns di Tab Tracking
+CreateDropdown(TrackingTab, "BULLET TARGET SOURCE:", 130, {
+    { Name = "Ikuti Target Aim Lock (Tab Player)", Value = "AimLock" },
+    { Name = "Musuh Terdekat dalam FOV Kursor", Value = "MouseFOV" },
+    { Name = "Musuh Terdekat Bebas (3D Closest)", Value = "Closest" }
+}, Config.BulletTargetSource, 35, function(val)
+    Config.BulletTargetSource = val
+end)
+
+CreateDropdown(TrackingTab, "TARGET BODY PART:", 182, {
+    { Name = "Head / Kepala (Headshot)", Value = "Head" },
+    { Name = "Torso / Badan (HumanoidRootPart)", Value = "Torso" },
+    { Name = "Auto (Ikuti Target Part Tab Player)", Value = "Auto" },
+    { Name = "Random (Acak Kepala / Badan)", Value = "Random" }
+}, Config.BulletTargetPart, 30, function(val)
+    Config.BulletTargetPart = val
+end)
+
+CreateDropdown(TrackingTab, "PREDICTION (LEAD TARGET):", 234, {
+    { Name = "Aktif (Kompensasi Kecepatan Musuh)", Value = true },
+    { Name = "Nonaktif (Tepat di Posisi Part)", Value = false }
+}, Config.BulletPrediction, 25, function(val)
+    Config.BulletPrediction = val
+end)
+
+CreateDropdown(TrackingTab, "HOMING PROJECTILES (BELOKKAN PELURU):", 286, {
+    { Name = "Aktif (Belokkan Peluru Fisik & FastCast)", Value = true },
+    { Name = "Nonaktif (Hanya Raycast & Silent Aim)", Value = false }
+}, Config.BulletHomingProjectiles, 20, function(val)
+    Config.BulletHomingProjectiles = val
+end)
+
+CreateDropdown(TrackingTab, "FOV CIRCLE (LINGKARAN TARGET):", 338, {
+    { Name = "Tampilkan Lingkaran FOV [Aktif]", Value = true },
+    { Name = "Sembunyikan Lingkaran FOV [Nonaktif]", Value = false }
+}, Config.BulletShowFOVCircle, 15, function(val)
+    Config.BulletShowFOVCircle = val
+end)
+
+CreateDropdown(TrackingTab, "BULLET TRACER VISUAL:", 390, {
+    { Name = "Laser Tracer [Aktif]", Value = true },
+    { Name = "Laser Tracer [Nonaktif]", Value = false }
+}, Config.BulletTracerEnabled, 10, function(val)
+    Config.BulletTracerEnabled = val
+end)
+
+-- Sliders di Tab Tracking
+CreateGeneralSlider(TrackingTab, "HIT CHANCE (AKURASI):", 444, "BulletHitChance", 1, 100, "%", Color3.fromRGB(0, 215, 160))
+CreateGeneralSlider(TrackingTab, "FOV RADIUS (PIXEL):", 498, "BulletFOVRadius", 40, 600, "px", Color3.fromRGB(0, 180, 255))
+
+-- Sub-Section: AUTO SHOOT (TRIGGERBOT & WALL CHECK)
+local AutoShootSectionTitle = Instance.new("TextLabel")
+AutoShootSectionTitle.Size = UDim2.new(1, -28, 0, 18)
+AutoShootSectionTitle.Position = UDim2.new(0, 14, 0, 552)
+AutoShootSectionTitle.BackgroundTransparency = 1
+AutoShootSectionTitle.Text = "AUTO SHOOT (TRIGGERBOT & WALL CHECK)"
+AutoShootSectionTitle.TextColor3 = Color3.fromRGB(120, 130, 150)
+AutoShootSectionTitle.Font = Enum.Font.GothamBold
+AutoShootSectionTitle.TextSize = 10
+AutoShootSectionTitle.TextXAlignment = Enum.TextXAlignment.Left
+AutoShootSectionTitle.Parent = TrackingTab
+
+local AutoShootToggleBtn = Instance.new("TextButton")
+AutoShootToggleBtn.Size = UDim2.new(1, -28, 0, 30)
+AutoShootToggleBtn.Position = UDim2.new(0, 14, 0, 574)
+AutoShootToggleBtn.BackgroundColor3 = Color3.fromRGB(35, 40, 52)
+AutoShootToggleBtn.Text = "AUTO SHOOT: OFF (G)"
+AutoShootToggleBtn.TextColor3 = Color3.fromRGB(220, 225, 235)
+AutoShootToggleBtn.Font = Enum.Font.GothamBold
+AutoShootToggleBtn.TextSize = 11
+AutoShootToggleBtn.BorderSizePixel = 0
+AutoShootToggleBtn.Parent = TrackingTab
+
+local AutoShootToggleCorner = Instance.new("UICorner")
+AutoShootToggleCorner.CornerRadius = UDim.new(0, 6)
+AutoShootToggleCorner.Parent = AutoShootToggleBtn
+
+local AutoShootToggleStroke = Instance.new("UIStroke")
+AutoShootToggleStroke.Thickness = 1
+AutoShootToggleStroke.Color = Color3.fromRGB(50, 58, 76)
+AutoShootToggleStroke.Parent = AutoShootToggleBtn
+
+CreateDropdown(TrackingTab, "AUTO SHOOT TRIGGER MODE:", 612, {
+    { Name = "Semua (Aim Lock + Lingkaran FOV)", Value = "All" },
+    { Name = "Hanya Lingkaran FOV (Kursor)", Value = "FOV" },
+    { Name = "Hanya Aim Lock (Locked Target)", Value = "AimLock" }
+}, Config.AutoShootMode, 8, function(val)
+    Config.AutoShootMode = val
+end)
+
+CreateDropdown(TrackingTab, "WALL CHECK (CEK TEMBOK):", 664, {
+    { Name = "Aktif (Hanya Tembak Jika Terlihat Bebas)", Value = true },
+    { Name = "Nonaktif (Tembus Pandang / Tembak Terus)", Value = false }
+}, Config.AutoShootWallCheck, 5, function(val)
+    Config.AutoShootWallCheck = val
+end)
+
+CreateGeneralSlider(TrackingTab, "DELAY TEMBAKAN (COOLDOWN):", 718, "AutoShootDelayMs", 50, 500, "ms", Color3.fromRGB(255, 140, 60))
+
+-- ============================================================================
+-- 4. ISI TAB SETTINGS (PANDUAN KONTROL & PENGATURAN UMUM)
+-- ============================================================================
+SettingsTab.CanvasSize = UDim2.new(0, 0, 0, 350)
+
+local SettingsTitle = Instance.new("TextLabel")
+SettingsTitle.Size = UDim2.new(1, -28, 0, 18)
+SettingsTitle.Position = UDim2.new(0, 14, 0, 10)
+SettingsTitle.BackgroundTransparency = 1
+SettingsTitle.Text = "PANDUAN KONTROL & KEYBINDS"
+SettingsTitle.TextColor3 = Color3.fromRGB(120, 130, 150)
+SettingsTitle.Font = Enum.Font.GothamBold
+SettingsTitle.TextSize = 10
+SettingsTitle.TextXAlignment = Enum.TextXAlignment.Left
+SettingsTitle.Parent = SettingsTab
+
+local KeybindsCard = Instance.new("Frame")
+KeybindsCard.Size = UDim2.new(1, -28, 0, 188)
+KeybindsCard.Position = UDim2.new(0, 14, 0, 32)
+KeybindsCard.BackgroundColor3 = Color3.fromRGB(18, 21, 29)
+KeybindsCard.BorderSizePixel = 0
+KeybindsCard.Parent = SettingsTab
+
+local KeyCorner = Instance.new("UICorner")
+KeyCorner.CornerRadius = UDim.new(0, 6)
+KeyCorner.Parent = KeybindsCard
+
+local KeyStroke = Instance.new("UIStroke")
+KeyStroke.Thickness = 1
+KeyStroke.Color = Color3.fromRGB(35, 40, 55)
+KeyStroke.Parent = KeybindsCard
+
+local keyItems = {
+    { Key = "[ Q ]", Desc = "Nyalakan / Matikan Auto Aim Lock (Kamera & Karakter)" },
+    { Key = "[ TAB ]", Desc = "Ganti Target Terdekat Berikutnya (Next Target)" },
+    { Key = "[ T ]", Desc = "Nyalakan / Matikan Bullet Tracking (Silent Aim & Homing)" },
+    { Key = "[ G ]", Desc = "Nyalakan / Matikan Auto Shoot (TriggerBot & Wall Check)" },
+    { Key = "[ R-Shift ]", Desc = "Buka / Tutup Antarmuka Feath Hub GUI" },
+    { Key = "[ Drag ]", Desc = "Geser Jendela Hub di Layar (PC & Mobile / Delta)" }
+}
+
+for idx, item in ipairs(keyItems) do
+    local kLabel = Instance.new("TextLabel")
+    kLabel.Size = UDim2.new(0, 68, 0, 22)
+    kLabel.Position = UDim2.new(0, 10, 0, 8 + (idx - 1) * 28)
+    kLabel.BackgroundColor3 = Color3.fromRGB(28, 32, 45)
+    kLabel.Text = item.Key
+    kLabel.TextColor3 = Color3.fromRGB(80, 210, 255)
+    kLabel.Font = Enum.Font.GothamBold
+    kLabel.TextSize = 10
+    kLabel.Parent = KeybindsCard
+
+    local kc = Instance.new("UICorner")
+    kc.CornerRadius = UDim.new(0, 4)
+    kc.Parent = kLabel
+
+    local dLabel = Instance.new("TextLabel")
+    dLabel.Size = UDim2.new(1, -90, 0, 22)
+    dLabel.Position = UDim2.new(0, 86, 0, 8 + (idx - 1) * 28)
+    dLabel.BackgroundTransparency = 1
+    dLabel.Text = item.Desc
+    dLabel.TextColor3 = Color3.fromRGB(190, 195, 205)
+    dLabel.Font = Enum.Font.Gotham
+    dLabel.TextSize = 10
+    dLabel.TextXAlignment = Enum.TextXAlignment.Left
+    dLabel.Parent = KeybindsCard
+end
+
+-- Info Versi & Support Card
+local AboutCard = Instance.new("Frame")
+AboutCard.Size = UDim2.new(1, -28, 0, 68)
+AboutCard.Position = UDim2.new(0, 14, 0, 230)
+AboutCard.BackgroundColor3 = Color3.fromRGB(18, 21, 29)
+AboutCard.BorderSizePixel = 0
+AboutCard.Parent = SettingsTab
+
+local AboutCorner = Instance.new("UICorner")
+AboutCorner.CornerRadius = UDim.new(0, 6)
+AboutCorner.Parent = AboutCard
+
+local AboutStroke = Instance.new("UIStroke")
+AboutStroke.Thickness = 1
+AboutStroke.Color = Color3.fromRGB(35, 40, 55)
+AboutStroke.Parent = AboutCard
+
+local AboutTitle = Instance.new("TextLabel")
+AboutTitle.Size = UDim2.new(1, -20, 0, 18)
+AboutTitle.Position = UDim2.new(0, 10, 0, 8)
+AboutTitle.BackgroundTransparency = 1
+AboutTitle.Text = "FEATH COMBAT SUITE v2.6"
+AboutTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+AboutTitle.Font = Enum.Font.GothamBold
+AboutTitle.TextSize = 11
+AboutTitle.TextXAlignment = Enum.TextXAlignment.Left
+AboutTitle.Parent = AboutCard
+
+local AboutDesc = Instance.new("TextLabel")
+AboutDesc.Size = UDim2.new(1, -20, 0, 32)
+AboutDesc.Position = UDim2.new(0, 10, 0, 28)
+AboutDesc.BackgroundTransparency = 1
+AboutDesc.Text = "Dilengkapi Full Silent Aim, Auto Shoot (Wall Check), Homing, Raycast Hook, & FOV Circle."
+AboutDesc.TextColor3 = Color3.fromRGB(130, 135, 150)
+AboutDesc.Font = Enum.Font.Gotham
+AboutDesc.TextSize = 9
+AboutDesc.TextWrapped = true
+AboutDesc.TextXAlignment = Enum.TextXAlignment.Left
+AboutDesc.Parent = AboutCard
 
 -- ============================================================================
 -- 3. ISI TAB PLAYER (SELURUH FUNGSI COMBAT LAMA DITEMPATKAN DI SINI)
@@ -1777,60 +2114,550 @@ function SetTarget(entry)
     end)
 end
 
+-- ============================================================================
+-- LOGIKA UTAMA BULLET TRACKING & SILENT AIM
+-- ============================================================================
+function GetBulletTarget()
+    local cfg = _G.FeathCombatConfig or Config
+    if not cfg or not cfg.BulletTrackingEnabled then return nil, nil end
+
+    local targetPart = nil
+    local targetChar = nil
+
+    local function ResolvePart(model)
+        if not model then return nil end
+        if cfg.BulletTargetPart == "Head" then
+            local h = model:FindFirstChild("Head")
+            if h and h:IsA("BasePart") then return h end
+        elseif cfg.BulletTargetPart == "Torso" then
+            local t = model:FindFirstChild("HumanoidRootPart") or model:FindFirstChild("Torso") or model:FindFirstChild("UpperTorso")
+            if t and t:IsA("BasePart") then return t end
+        elseif cfg.BulletTargetPart == "Random" then
+            local candidates = {}
+            local h = model:FindFirstChild("Head")
+            if h and h:IsA("BasePart") then table.insert(candidates, h) end
+            local t = model:FindFirstChild("HumanoidRootPart") or model:FindFirstChild("Torso") or model:FindFirstChild("UpperTorso")
+            if t and t:IsA("BasePart") then table.insert(candidates, t) end
+            if #candidates > 0 then return candidates[math.random(1, #candidates)] end
+        end
+        return GetTargetPart(model)
+    end
+
+    -- 1. Mode AimLock
+    if cfg.BulletTargetSource == "AimLock" then
+        if CurrentTargetChar and IsValidEnemy(CurrentTargetChar) then
+            local part = ResolvePart(CurrentTargetChar)
+            if part then
+                if cfg.BulletUseFOV then
+                    local screenPos, onScreen = Camera:WorldToViewportPoint(part.Position)
+                    local mousePos = UserInputService:GetMouseLocation()
+                    local dist2D = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+                    if onScreen and dist2D <= cfg.BulletFOVRadius then
+                        targetPart = part
+                        targetChar = CurrentTargetChar
+                    end
+                else
+                    targetPart = part
+                    targetChar = CurrentTargetChar
+                end
+            end
+        end
+    end
+
+    -- 2. Fallback / Mode MouseFOV & Closest
+    if not targetPart then
+        local enemies = GetEnemiesSortedByDistance()
+        local mousePos = UserInputService:GetMouseLocation()
+        local bestCandidate = nil
+        local bestMetric = math.huge
+
+        for _, entry in ipairs(enemies) do
+            local model = entry.Character
+            local part = ResolvePart(model)
+            if part then
+                if cfg.BulletTargetSource == "Closest" and not cfg.BulletUseFOV then
+                    if entry.Distance < bestMetric then
+                        bestMetric = entry.Distance
+                        bestCandidate = { Model = model, Part = part }
+                    end
+                else
+                    local screenPos, onScreen = Camera:WorldToViewportPoint(part.Position)
+                    if onScreen then
+                        local screenDist = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+                        if (not cfg.BulletUseFOV or screenDist <= cfg.BulletFOVRadius) and screenDist < bestMetric then
+                            bestMetric = screenDist
+                            bestCandidate = { Model = model, Part = part }
+                        end
+                    end
+                end
+            end
+        end
+
+        if bestCandidate then
+            targetChar = bestCandidate.Model
+            targetPart = bestCandidate.Part
+        end
+    end
+
+    if not targetPart or not targetPart:IsA("BasePart") then
+        return nil, nil
+    end
+
+    local targetPos = targetPart.Position
+    if cfg.BulletPrediction then
+        local vel = Vector3.zero
+        pcall(function()
+            vel = targetPart.AssemblyLinearVelocity
+        end)
+        local predFactor = cfg.BulletPredictionFactor or 0.13
+        targetPos = targetPos + (vel * predFactor)
+    end
+
+    return targetPart, targetPos
+end
+
+function CreateBulletTracer(fromPos, toPos)
+    local cfg = _G.FeathCombatConfig or Config
+    if not cfg or not cfg.BulletTracerEnabled then return end
+    task.spawn(function()
+        pcall(function()
+            local dist = (toPos - fromPos).Magnitude
+            if dist < 1 or dist > 2500 then return end
+            local tracer = Instance.new("Part")
+            tracer.Name = "CombatBulletTracer"
+            tracer.Anchored = true
+            tracer.CanCollide = false
+            tracer.CastShadow = false
+            tracer.Material = Enum.Material.Neon
+            tracer.Color = cfg.BulletTracerColor or Color3.fromRGB(0, 225, 255)
+            tracer.Size = Vector3.new(0.08, 0.08, dist)
+            tracer.CFrame = CFrame.lookAt(fromPos, toPos) * CFrame.new(0, 0, -dist / 2)
+            tracer.Parent = workspace
+
+            local tween = TweenService:Create(tracer, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                Transparency = 1,
+                Size = Vector3.new(0.01, 0.01, dist)
+            })
+            tween:Play()
+            tween.Completed:Connect(function()
+                tracer:Destroy()
+            end)
+            task.delay(0.5, function()
+                if tracer and tracer.Parent then tracer:Destroy() end
+            end)
+        end)
+    end)
+end
+
+function ToggleBulletTracking()
+    pcall(function()
+        Config.BulletTrackingEnabled = not Config.BulletTrackingEnabled
+        _G.FeathCombatConfig = Config
+        UpdateUI()
+    end)
+end
+
+-- Pasang fungsi ke _G untuk delegasi hook metamethod
+_G.FeathGetBulletTarget = GetBulletTarget
+_G.FeathCreateBulletTracer = CreateBulletTracer
+
+-- Inisialisasi Hooking Metamethod (Silent Aim)
+pcall(function()
+    if typeof(hookmetamethod) == "function" and typeof(getnamecallmethod) == "function" then
+        if not _G.FeathMetamethodsHooked then
+            _G.FeathMetamethodsHooked = true
+
+            local oldNamecall
+            oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
+                local method = getnamecallmethod()
+                local cfg = _G.FeathCombatConfig
+                if cfg and cfg.BulletTrackingEnabled and (not checkcaller or not checkcaller()) then
+                    if (method == "Raycast" and self == workspace)
+                        or method == "FindPartOnRay"
+                        or method == "FindPartOnRayWithIgnoreList"
+                        or method == "FindPartOnRayWithWhitelist" then
+
+                        local hitChance = cfg.BulletHitChance or 100
+                        if math.random(1, 100) <= hitChance then
+                            local fn = _G.FeathGetBulletTarget
+                            local targetPart, targetPos = fn and fn()
+                            if targetPart and targetPos then
+                                local args = {...}
+                                if method == "Raycast" then
+                                    local origin = args[1]
+                                    local dir = args[2]
+                                    if typeof(origin) == "Vector3" and typeof(dir) == "Vector3" then
+                                        local mag = math.max(dir.Magnitude, 1000)
+                                        args[2] = (targetPos - origin).Unit * mag
+                                        if _G.FeathCreateBulletTracer then
+                                            _G.FeathCreateBulletTracer(origin, targetPos)
+                                        end
+                                        return oldNamecall(self, table.unpack(args))
+                                    end
+                                else
+                                    local ray = args[1]
+                                    if typeof(ray) == "Ray" then
+                                        local mag = math.max(ray.Direction.Magnitude, 1000)
+                                        local newDir = (targetPos - ray.Origin).Unit * mag
+                                        args[1] = Ray.new(ray.Origin, newDir)
+                                        if _G.FeathCreateBulletTracer then
+                                            _G.FeathCreateBulletTracer(ray.Origin, targetPos)
+                                        end
+                                        return oldNamecall(self, table.unpack(args))
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+                return oldNamecall(self, ...)
+            end))
+
+            local oldIndex
+            oldIndex = hookmetamethod(game, "__index", newcclosure(function(self, key)
+                local cfg = _G.FeathCombatConfig
+                if cfg and cfg.BulletTrackingEnabled and (not checkcaller or not checkcaller()) then
+                    local ok, isMouse = pcall(function() return typeof(self) == "Instance" and self:IsA("Mouse") end)
+                    if ok and isMouse then
+                        if key == "Hit" or key == "Target" then
+                            local hitChance = cfg.BulletHitChance or 100
+                            if math.random(1, 100) <= hitChance then
+                                local fn = _G.FeathGetBulletTarget
+                                local targetPart, targetPos = fn and fn()
+                                if targetPart and targetPos then
+                                    if key == "Hit" then
+                                        if _G.FeathCreateBulletTracer then
+                                            local camPos = Camera and Camera.CFrame.Position or targetPos
+                                            _G.FeathCreateBulletTracer(camPos, targetPos)
+                                        end
+                                        return CFrame.new(targetPos)
+                                    elseif key == "Target" then
+                                        return targetPart
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+                return oldIndex(self, key)
+            end))
+        end
+    end
+end)
+
+-- Homing Projectiles (Peluru Fisik & FastCast di Workspace)
+local function MonitorProjectile(obj)
+    local cfg = _G.FeathCombatConfig or Config
+    if not cfg or not cfg.BulletTrackingEnabled or not cfg.BulletHomingProjectiles then return end
+    if not obj or not obj:IsA("BasePart") then return end
+
+    local myChar = LocalPlayer.Character
+    if not myChar then return end
+    if obj:IsDescendantOf(myChar) then return end
+    if obj.Name == "CombatBulletTracer" or obj.Name == "CombatTargetHitboxBox" or obj.Name == "CombatTargetHitboxHighlight" then return end
+
+    local lowerName = string.lower(obj.Name)
+    local isProjectileName = string.find(lowerName, "bullet") or string.find(lowerName, "projectile")
+        or string.find(lowerName, "missile") or string.find(lowerName, "rocket")
+        or string.find(lowerName, "arrow") or string.find(lowerName, "laser")
+        or string.find(lowerName, "pellet") or string.find(lowerName, "tracer")
+        or string.find(lowerName, "plasma") or string.find(lowerName, "shot")
+        or string.find(lowerName, "fastcast") or string.find(lowerName, "bolt")
+
+    local myRoot = GetTargetPart(myChar)
+    if not myRoot then return end
+    local distFromPlayer = (obj.Position - myRoot.Position).Magnitude
+
+    if isProjectileName or (distFromPlayer <= 16 and not obj.Anchored and obj.Size.Magnitude < 8) then
+        local hitChance = cfg.BulletHitChance or 100
+        if math.random(1, 100) > hitChance then return end
+
+        local fn = _G.FeathGetBulletTarget or GetBulletTarget
+        local targetPart, targetPos = fn and fn()
+        if not targetPart or not targetPos then return end
+
+        local connection
+        local startTime = tick()
+        connection = RunService.Heartbeat:Connect(function(dt)
+            if not obj or not obj.Parent or (tick() - startTime > 3.5) then
+                if connection then connection:Disconnect() connection = nil end
+                return
+            end
+
+            local tPart, tPos = fn and fn()
+            if not tPart or not tPos then
+                if connection then connection:Disconnect() connection = nil end
+                return
+            end
+
+            local diff = tPos - obj.Position
+            local dist = diff.Magnitude
+            if dist < 2.5 then
+                if connection then connection:Disconnect() connection = nil end
+                return
+            end
+
+            local currentVel = obj.AssemblyLinearVelocity
+            local currentSpeed = currentVel.Magnitude
+            if currentSpeed < 30 then currentSpeed = 250 end
+
+            pcall(function()
+                obj.AssemblyLinearVelocity = diff.Unit * currentSpeed
+                obj.CFrame = CFrame.lookAt(obj.Position, tPos)
+            end)
+        end)
+    end
+end
+
+_G.CombatBulletProjectileConn = workspace.DescendantAdded:Connect(function(descendant)
+    pcall(function()
+        MonitorProjectile(descendant)
+    end)
+end)
+
+-- ============================================================================
+-- LOGIKA AUTO SHOOT (TRIGGERBOT DENGAN WALL CHECK)
+-- ============================================================================
+function IsTargetVisible(targetPart)
+    if not targetPart or not targetPart:IsA("BasePart") then return false end
+    local myChar = LocalPlayer.Character
+    if not myChar then return false end
+
+    local origin = Camera and Camera.CFrame.Position
+    if not origin then
+        local myHead = myChar:FindFirstChild("Head") or GetTargetPart(myChar)
+        if not myHead then return false end
+        origin = myHead.Position
+    end
+
+    local targetPos = targetPart.Position
+    local direction = targetPos - origin
+    local dist = direction.Magnitude
+    if dist < 0.5 then return true end
+
+    local targetModel = targetPart.Parent
+
+    local rayParams = RaycastParams.new()
+    rayParams.FilterType = Enum.RaycastFilterType.Exclude
+    rayParams.FilterDescendantsInstances = {
+        myChar,
+        targetModel,
+        Camera
+    }
+    rayParams.IgnoreWater = true
+
+    local hit = workspace:Raycast(origin, direction, rayParams)
+    if hit and hit.Instance and not hit.Instance:IsDescendantOf(targetModel) and not hit.Instance:IsDescendantOf(myChar) then
+        if hit.Instance.CanCollide == false and hit.Instance.Transparency > 0.5 then
+            return true
+        end
+        return false -- Terhalang tembok/rintangan
+    end
+
+    return true
+end
+
+function GetAutoShootTarget()
+    local myChar = LocalPlayer.Character
+    if not myChar then return nil end
+
+    -- 1. Mode AimLock / All: Cek apakah target yang sedang di-lock terlihat bebas
+    if (Config.AutoShootMode == "All" or Config.AutoShootMode == "AimLock") and AutoLockEnabled then
+        if CurrentTargetChar and IsValidEnemy(CurrentTargetChar) and CurrentTargetPart then
+            if not Config.AutoShootWallCheck or IsTargetVisible(CurrentTargetPart) then
+                return CurrentTargetPart
+            end
+        end
+    end
+
+    -- 2. Mode FOV / All: Cek musuh di dalam lingkaran FOV
+    if Config.AutoShootMode == "All" or Config.AutoShootMode == "FOV" then
+        local enemies = GetEnemiesSortedByDistance()
+        local mousePos = UserInputService:GetMouseLocation()
+
+        for _, entry in ipairs(enemies) do
+            local model = entry.Character
+            local part = nil
+            if Config.BulletTargetPart == "Head" then
+                part = model:FindFirstChild("Head") or entry.Part
+            elseif Config.BulletTargetPart == "Torso" then
+                part = model:FindFirstChild("HumanoidRootPart") or model:FindFirstChild("Torso") or model:FindFirstChild("UpperTorso") or entry.Part
+            else
+                part = entry.Part
+            end
+
+            if part and part:IsA("BasePart") then
+                local screenPos, onScreen = Camera:WorldToViewportPoint(part.Position)
+                if onScreen then
+                    local screenDist = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+                    if screenDist <= Config.BulletFOVRadius then
+                        if not Config.AutoShootWallCheck or IsTargetVisible(part) then
+                            return part
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return nil
+end
+
+local lastAutoShootTick = 0
+function TriggerShoot()
+    local now = tick()
+    local delayTime = (Config.AutoShootDelayMs or 100) / 1000
+    if now - lastAutoShootTick < delayTime then
+        return
+    end
+    lastAutoShootTick = now
+
+    pcall(function()
+        -- 1. Aktivasi senjata Tool di karakter
+        local myChar = LocalPlayer.Character
+        local tool = myChar and myChar:FindFirstChildOfClass("Tool")
+        if tool then
+            tool:Activate()
+        end
+
+        -- 2. Simulasi klik mouse untuk senjata berbasis event input
+        if typeof(mouse1click) == "function" then
+            mouse1click()
+        elseif typeof(mouse1press) == "function" and typeof(mouse1release) == "function" then
+            mouse1press()
+            task.delay(0.02, function() pcall(mouse1release) end)
+        else
+            local vu = game:GetService("VirtualUser")
+            if vu then
+                vu:CaptureController()
+                vu:Button1Down(Vector2.new(0, 0))
+                task.delay(0.02, function()
+                    pcall(function() vu:Button1Up(Vector2.new(0, 0)) end)
+                end)
+            end
+        end
+    end)
+end
+
+function ToggleAutoShoot()
+    pcall(function()
+        Config.AutoShootEnabled = not Config.AutoShootEnabled
+        _G.FeathCombatConfig = Config
+        UpdateUI()
+    end)
+end
+
 local function UpdateUI()
     pcall(function()
-        if not AutoLockEnabled then
+        -- 1. Status Indicator Sidebar
+        if AutoLockEnabled then
+            if CurrentTargetChar and IsValidEnemy(CurrentTargetChar) and CurrentTargetPart then
+                StatusVal.Text = "Locked"
+                StatusVal.TextColor3 = Color3.fromRGB(255, 60, 80)
+                DotIndicator.BackgroundColor3 = Color3.fromRGB(255, 60, 80)
+            else
+                StatusVal.Text = "Searching"
+                StatusVal.TextColor3 = Color3.fromRGB(220, 160, 30)
+                DotIndicator.BackgroundColor3 = Color3.fromRGB(220, 160, 30)
+            end
+        elseif Config.AutoShootEnabled then
+            StatusVal.Text = "AutoShoot"
+            StatusVal.TextColor3 = Color3.fromRGB(50, 225, 120)
+            DotIndicator.BackgroundColor3 = Color3.fromRGB(50, 225, 120)
+        elseif Config.BulletTrackingEnabled then
+            StatusVal.Text = "Tracking"
+            StatusVal.TextColor3 = Color3.fromRGB(0, 180, 255)
+            DotIndicator.BackgroundColor3 = Color3.fromRGB(0, 180, 255)
+        else
             StatusVal.Text = "Idle"
             StatusVal.TextColor3 = Color3.fromRGB(160, 165, 180)
             DotIndicator.BackgroundColor3 = Color3.fromRGB(120, 130, 150)
+        end
 
+        -- 2. Update Tab Player UI (Aim Lock)
+        if not AutoLockEnabled then
             ToggleButton.Text = "NYALAKAN (Q)"
             ToggleButton.BackgroundColor3 = Color3.fromRGB(0, 135, 240)
 
             TargetNameLabel.Text = "Status: Fitur Nonaktif"
             DistanceLabel.Text = "Jarak: --"
             HealthBarFill.Size = UDim2.new(0, 0, 1, 0)
-            return
+        else
+            ToggleButton.Text = "MATIKAN (Q)"
+            ToggleButton.BackgroundColor3 = Color3.fromRGB(220, 45, 65)
+
+            if CurrentTargetChar and IsValidEnemy(CurrentTargetChar) and CurrentTargetPart then
+                local tag = CurrentTargetIsNPC and "[BOT] " or "[PLAYER] "
+                local partTag = Config.TargetPartChoice == "Head" and " (HEAD)" or " (TORSO)"
+                TargetNameLabel.Text = tag .. tostring(CurrentTargetChar.Name) .. partTag
+
+                local hum = CurrentTargetChar:FindFirstChildOfClass("Humanoid")
+                local myChar = LocalPlayer.Character
+                local myRoot = GetTargetPart(myChar)
+
+                if hum and myRoot and CurrentTargetPart then
+                    local dist = math.floor((CurrentTargetPart.Position - myRoot.Position).Magnitude)
+                    DistanceLabel.Text = string.format("Jarak: %d studs | HP: %d/%d", dist, math.floor(hum.Health), math.floor(hum.MaxHealth))
+
+                    local healthRatio = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
+                    HealthBarFill.Size = UDim2.new(healthRatio, 0, 1, 0)
+                    if healthRatio > 0.5 then
+                        HealthBarFill.BackgroundColor3 = Color3.fromRGB(50, 205, 120)
+                    elseif healthRatio > 0.25 then
+                        HealthBarFill.BackgroundColor3 = Color3.fromRGB(240, 175, 45)
+                    else
+                        HealthBarFill.BackgroundColor3 = Color3.fromRGB(235, 50, 50)
+                    end
+                end
+            else
+                TargetNameLabel.Text = "Status: Mencari target terdekat..."
+                DistanceLabel.Text = "Jarak: Menunggu musuh..."
+                HealthBarFill.Size = UDim2.new(0, 0, 1, 0)
+            end
         end
 
-        ToggleButton.Text = "MATIKAN (Q)"
-        ToggleButton.BackgroundColor3 = Color3.fromRGB(220, 45, 65)
-
-        if CurrentTargetChar and IsValidEnemy(CurrentTargetChar) and CurrentTargetPart then
-            StatusVal.Text = "Locked"
-            StatusVal.TextColor3 = Color3.fromRGB(255, 60, 80)
-            DotIndicator.BackgroundColor3 = Color3.fromRGB(255, 60, 80)
-
-            local tag = CurrentTargetIsNPC and "[BOT] " or "[PLAYER] "
-            local partTag = Config.TargetPartChoice == "Head" and " (HEAD)" or " (TORSO)"
-            TargetNameLabel.Text = tag .. tostring(CurrentTargetChar.Name) .. partTag
-
-            local hum = CurrentTargetChar:FindFirstChildOfClass("Humanoid")
-            local myChar = LocalPlayer.Character
-            local myRoot = GetTargetPart(myChar)
-
-            if hum and myRoot and CurrentTargetPart then
-                local dist = math.floor((CurrentTargetPart.Position - myRoot.Position).Magnitude)
-                DistanceLabel.Text = string.format("Jarak: %d studs | HP: %d/%d", dist, math.floor(hum.Health), math.floor(hum.MaxHealth))
-
-                local healthRatio = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
-                HealthBarFill.Size = UDim2.new(healthRatio, 0, 1, 0)
-                if healthRatio > 0.5 then
-                    HealthBarFill.BackgroundColor3 = Color3.fromRGB(50, 205, 120)
-                elseif healthRatio > 0.25 then
-                    HealthBarFill.BackgroundColor3 = Color3.fromRGB(240, 175, 45)
-                else
-                    HealthBarFill.BackgroundColor3 = Color3.fromRGB(235, 50, 50)
-                end
-            end
+        -- 3. Update Tab Tracking UI (Bullet Tracking)
+        if not Config.BulletTrackingEnabled then
+            TrackingToggleButton.Text = "NYALAKAN TRACKING (T)"
+            TrackingToggleButton.BackgroundColor3 = Color3.fromRGB(0, 135, 240)
+            TrackingStatusLabel.Text = "Status: Fitur Nonaktif"
+            TrackingStatusLabel.TextColor3 = Color3.fromRGB(160, 165, 180)
+            TrackingTargetLabel.Text = "Target: --"
+            TrackingTargetLabel.TextColor3 = Color3.fromRGB(130, 135, 150)
         else
-            StatusVal.Text = "Searching"
-            StatusVal.TextColor3 = Color3.fromRGB(220, 160, 30)
-            DotIndicator.BackgroundColor3 = Color3.fromRGB(220, 160, 30)
+            TrackingToggleButton.Text = "MATIKAN TRACKING (T)"
+            TrackingToggleButton.BackgroundColor3 = Color3.fromRGB(220, 45, 65)
 
-            TargetNameLabel.Text = "Status: Mencari target terdekat..."
-            DistanceLabel.Text = "Jarak: Menunggu musuh..."
-            HealthBarFill.Size = UDim2.new(0, 0, 1, 0)
+            local tPart, _ = GetBulletTarget()
+            if tPart and tPart.Parent then
+                local tChar = tPart.Parent
+                local isNPC = not Players:GetPlayerFromCharacter(tChar)
+                local tag = isNPC and "[BOT] " or "[PLAYER] "
+                local partName = string.upper(tPart.Name)
+
+                TrackingStatusLabel.Text = "Status: Tracking Aktif (Target Locked)"
+                TrackingStatusLabel.TextColor3 = Color3.fromRGB(50, 225, 120)
+                TrackingTargetLabel.Text = string.format("Target: %s%s (%s)", tag, tChar.Name, partName)
+                TrackingTargetLabel.TextColor3 = Color3.fromRGB(80, 210, 255)
+            else
+                TrackingStatusLabel.Text = "Status: Tracking Aktif (Mencari Target...)"
+                TrackingStatusLabel.TextColor3 = Color3.fromRGB(240, 175, 45)
+                TrackingTargetLabel.Text = "Target: Arahkan kursor ke musuh di dalam FOV"
+                TrackingTargetLabel.TextColor3 = Color3.fromRGB(150, 155, 170)
+            end
+        end
+
+        -- 4. Update Tab Tracking UI (Auto Shoot)
+        if not Config.AutoShootEnabled then
+            AutoShootToggleBtn.Text = "AUTO SHOOT: OFF (G)"
+            AutoShootToggleBtn.BackgroundColor3 = Color3.fromRGB(35, 40, 52)
+            AutoShootToggleBtn.TextColor3 = Color3.fromRGB(220, 225, 235)
+            AutoShootToggleStroke.Color = Color3.fromRGB(50, 58, 76)
+        else
+            AutoShootToggleBtn.Text = "AUTO SHOOT: ON (G)"
+            AutoShootToggleBtn.BackgroundColor3 = Color3.fromRGB(0, 180, 120)
+            AutoShootToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            AutoShootToggleStroke.Color = Color3.fromRGB(0, 220, 150)
         end
     end)
 end
@@ -2487,6 +3314,14 @@ SwitchButton.MouseButton1Click:Connect(function()
     pcall(SwitchTarget)
 end)
 
+TrackingToggleButton.MouseButton1Click:Connect(function()
+    pcall(ToggleBulletTracking)
+end)
+
+AutoShootToggleBtn.MouseButton1Click:Connect(function()
+    pcall(ToggleAutoShoot)
+end)
+
 -- Keyboard Event
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
@@ -2495,6 +3330,10 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
             ToggleAutoLock()
         elseif input.KeyCode == Config.SwitchKey then
             SwitchTarget()
+        elseif input.KeyCode == Config.BulletToggleKey then
+            ToggleBulletTracking()
+        elseif input.KeyCode == Config.AutoShootKey then
+            ToggleAutoShoot()
         elseif input.KeyCode == Config.ToggleUIKey then
             if MainFrame.Visible then
                 MainFrame.Visible = false
@@ -2514,6 +3353,44 @@ RunService.RenderStepped:Connect(function(dt)
     pcall(function()
         UpdateUI()
         UpdateVisualHighlights()
+
+        -- Update Tampilan Lingkaran FOV (Field of View)
+        local shouldShowFOV = (Config.BulletTrackingEnabled or Config.AutoShootEnabled) and Config.BulletShowFOVCircle and Config.BulletUseFOV
+        if shouldShowFOV then
+            local mousePos = UserInputService:GetMouseLocation()
+            local diameter = Config.BulletFOVRadius * 2
+            FOVCircle.Size = UDim2.new(0, diameter, 0, diameter)
+            FOVCircle.Position = UDim2.new(0, mousePos.X, 0, mousePos.Y)
+
+            local shootTarget = Config.AutoShootEnabled and GetAutoShootTarget()
+            local tPart, _ = GetBulletTarget()
+            if shootTarget then
+                FOVStroke.Color = Color3.fromRGB(50, 225, 120) -- Hijau: Siap Tembak
+                FOVStroke.Transparency = 0.15
+            elseif tPart then
+                if Config.AutoShootWallCheck and not IsTargetVisible(tPart) then
+                    FOVStroke.Color = Color3.fromRGB(245, 155, 40) -- Oranye: Terhalang Tembok
+                    FOVStroke.Transparency = 0.25
+                else
+                    FOVStroke.Color = Color3.fromRGB(255, 60, 80) -- Merah: Target Terkunci
+                    FOVStroke.Transparency = 0.2
+                end
+            else
+                FOVStroke.Color = Config.BulletFOVCircleColor
+                FOVStroke.Transparency = 0.4
+            end
+            FOVCircle.Visible = true
+        else
+            FOVCircle.Visible = false
+        end
+
+        -- Evaluasi Auto Shoot (TriggerBot dengan Wall Check)
+        if Config.AutoShootEnabled then
+            local shootTarget = GetAutoShootTarget()
+            if shootTarget then
+                TriggerShoot()
+            end
+        end
 
         if not AutoLockEnabled then return end
 
