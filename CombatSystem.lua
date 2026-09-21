@@ -85,11 +85,11 @@ ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 pcall(function() ScreenGui.Parent = SafeParent end)
 
--- 1. Collapsed Bar / Mini Button (Floating Toggle)
+-- 1. Collapsed Bar / Title Bar Only (Non-draggable, stays fixed at top)
 local CollapsedBar = Instance.new("Frame")
 CollapsedBar.Name = "CollapsedBar"
-CollapsedBar.Size = UDim2.new(0, 320, 0, 36)
-CollapsedBar.Position = UDim2.new(0.5, -160, 0.05, 0)
+CollapsedBar.Size = UDim2.new(0, 395, 0, 36)
+CollapsedBar.Position = UDim2.new(0.5, -197, 0.05, 0)
 CollapsedBar.BackgroundColor3 = Color3.fromRGB(15, 17, 23)
 CollapsedBar.BorderSizePixel = 0
 CollapsedBar.Visible = false
@@ -121,25 +121,41 @@ ColIconCorner.CornerRadius = UDim.new(0, 6)
 ColIconCorner.Parent = ColIcon
 
 local ColTitle = Instance.new("TextLabel")
-ColTitle.Size = UDim2.new(0, 110, 1, 0)
+ColTitle.Size = UDim2.new(0, 80, 1, 0)
 ColTitle.Position = UDim2.new(0, 38, 0, 0)
 ColTitle.BackgroundTransparency = 1
 ColTitle.Text = "FEATH HUB"
 ColTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
 ColTitle.Font = Enum.Font.GothamBold
-ColTitle.TextSize = 12
+ColTitle.TextSize = 11
 ColTitle.TextXAlignment = Enum.TextXAlignment.Left
 ColTitle.ZIndex = 51
 ColTitle.Parent = CollapsedBar
 
+local ColBadge = Instance.new("TextLabel")
+ColBadge.Size = UDim2.new(0, 58, 0, 18)
+ColBadge.Position = UDim2.new(0, 122, 0.5, -9)
+ColBadge.BackgroundColor3 = Color3.fromRGB(24, 32, 50)
+ColBadge.Text = "Collapsed"
+ColBadge.TextColor3 = Color3.fromRGB(80, 160, 255)
+ColBadge.Font = Enum.Font.GothamMedium
+ColBadge.TextSize = 9
+ColBadge.ZIndex = 51
+ColBadge.Parent = CollapsedBar
+
+local ColBadgeCorner = Instance.new("UICorner")
+ColBadgeCorner.CornerRadius = UDim.new(0, 4)
+ColBadgeCorner.Parent = ColBadge
+
+-- Tombol Expand ke Main Window
 local ExpandBtn = Instance.new("TextButton")
-ExpandBtn.Size = UDim2.new(0, 140, 0, 24)
-ExpandBtn.Position = UDim2.new(1, -150, 0.5, -12)
+ExpandBtn.Size = UDim2.new(0, 120, 0, 24)
+ExpandBtn.Position = UDim2.new(0, 186, 0.5, -12)
 ExpandBtn.BackgroundColor3 = Color3.fromRGB(25, 30, 42)
 ExpandBtn.Text = "📖 Click to Expand"
 ExpandBtn.TextColor3 = Color3.fromRGB(180, 210, 255)
 ExpandBtn.Font = Enum.Font.GothamMedium
-ExpandBtn.TextSize = 11
+ExpandBtn.TextSize = 10
 ExpandBtn.ZIndex = 51
 ExpandBtn.Parent = CollapsedBar
 
@@ -147,7 +163,102 @@ local ExpCorner = Instance.new("UICorner")
 ExpCorner.CornerRadius = UDim.new(0, 6)
 ExpCorner.Parent = ExpandBtn
 
--- 2. Main Window Frame (520 x 360 px Standard Hub Layout)
+-- Tombol Ubah ke Mode Kotak (Mini Draggable Box)
+local ToKotakBtn = Instance.new("TextButton")
+ToKotakBtn.Size = UDim2.new(0, 52, 0, 24)
+ToKotakBtn.Position = UDim2.new(0, 312, 0.5, -12)
+ToKotakBtn.BackgroundColor3 = Color3.fromRGB(30, 38, 56)
+ToKotakBtn.Text = "⛶ Kotak"
+ToKotakBtn.TextColor3 = Color3.fromRGB(120, 200, 255)
+ToKotakBtn.Font = Enum.Font.GothamBold
+ToKotakBtn.TextSize = 10
+ToKotakBtn.ZIndex = 51
+ToKotakBtn.Parent = CollapsedBar
+
+local KotakBtnCorner = Instance.new("UICorner")
+KotakBtnCorner.CornerRadius = UDim.new(0, 6)
+KotakBtnCorner.Parent = ToKotakBtn
+
+-- Tombol Close di Collapsed Bar
+local CloseColBtn = Instance.new("TextButton")
+CloseColBtn.Size = UDim2.new(0, 20, 0, 24)
+CloseColBtn.Position = UDim2.new(1, -26, 0.5, -12)
+CloseColBtn.BackgroundTransparency = 1
+CloseColBtn.Text = "✕"
+CloseColBtn.TextColor3 = Color3.fromRGB(160, 165, 180)
+CloseColBtn.Font = Enum.Font.GothamBold
+CloseColBtn.TextSize = 12
+CloseColBtn.ZIndex = 51
+CloseColBtn.Parent = CollapsedBar
+
+-- 2. Mini Kotak Widget (Mode Kotak yang BISA DI-DRAG)
+local MiniKotak = Instance.new("Frame")
+MiniKotak.Name = "MiniKotak"
+MiniKotak.Size = UDim2.new(0, 44, 0, 44)
+MiniKotak.Position = UDim2.new(0, 20, 0.5, -22)
+MiniKotak.BackgroundColor3 = Color3.fromRGB(15, 17, 23)
+MiniKotak.BorderSizePixel = 0
+MiniKotak.Visible = false
+MiniKotak.Active = true
+MiniKotak.ZIndex = 60
+MiniKotak.Parent = ScreenGui
+
+local MiniKotakCorner = Instance.new("UICorner")
+MiniKotakCorner.CornerRadius = UDim.new(0, 10)
+MiniKotakCorner.Parent = MiniKotak
+
+local MiniKotakStroke = Instance.new("UIStroke")
+MiniKotakStroke.Thickness = 1.5
+MiniKotakStroke.Color = Color3.fromRGB(0, 120, 255)
+MiniKotakStroke.Parent = MiniKotak
+
+local MiniKotakBtn = Instance.new("TextButton")
+MiniKotakBtn.Size = UDim2.new(1, 0, 1, 0)
+MiniKotakBtn.BackgroundTransparency = 1
+MiniKotakBtn.Text = "⚡"
+MiniKotakBtn.TextColor3 = Color3.fromRGB(0, 140, 255)
+MiniKotakBtn.Font = Enum.Font.GothamBold
+MiniKotakBtn.TextSize = 20
+MiniKotakBtn.ZIndex = 61
+MiniKotakBtn.Parent = MiniKotak
+
+-- Fitur Smooth Dragging Khusus Mode Kotak (Touch Screen Mobile & Mouse)
+local isKotakDragging = false
+local isKotakMoved = false
+local kotakDragStart = nil
+local kotakStartPos = nil
+
+MiniKotak.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        isKotakDragging = true
+        isKotakMoved = false
+        kotakDragStart = input.Position
+        kotakStartPos = MiniKotak.Position
+
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                isKotakDragging = false
+            end
+        end)
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if isKotakDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local delta = input.Position - kotakDragStart
+        if delta.Magnitude > 5 then
+            isKotakMoved = true
+        end
+        MiniKotak.Position = UDim2.new(
+            kotakStartPos.X.Scale,
+            kotakStartPos.X.Offset + delta.X,
+            kotakStartPos.Y.Scale,
+            kotakStartPos.Y.Offset + delta.Y
+        )
+    end
+end)
+
+-- 3. Main Window Frame (520 x 360 px Standard Hub Layout)
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
 MainFrame.Size = UDim2.new(0, 520, 0, 360)
@@ -254,16 +365,34 @@ TopDivider.Parent = MainFrame
 -- Logika Minimize & Restore
 MinBtn.MouseButton1Click:Connect(function()
     MainFrame.Visible = false
+    MiniKotak.Visible = false
     CollapsedBar.Visible = true
 end)
 
 ExpandBtn.MouseButton1Click:Connect(function()
     CollapsedBar.Visible = false
+    MiniKotak.Visible = false
     MainFrame.Visible = true
+end)
+
+ToKotakBtn.MouseButton1Click:Connect(function()
+    CollapsedBar.Visible = false
+    MiniKotak.Visible = true
+end)
+
+CloseColBtn.MouseButton1Click:Connect(function()
+    CollapsedBar.Visible = false
 end)
 
 CloseBtn.MouseButton1Click:Connect(function()
     ScreenGui.Enabled = false
+end)
+
+MiniKotakBtn.MouseButton1Click:Connect(function()
+    if not isKotakMoved then
+        MiniKotak.Visible = false
+        MainFrame.Visible = true
+    end
 end)
 
 -- Sidebar Navigasi Kiri (130px)
@@ -1240,8 +1369,15 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
         elseif input.KeyCode == Config.SwitchKey then
             SwitchTarget()
         elseif input.KeyCode == Config.ToggleUIKey then
-            MainFrame.Visible = not MainFrame.Visible
-            CollapsedBar.Visible = false
+            if MainFrame.Visible then
+                MainFrame.Visible = false
+                CollapsedBar.Visible = false
+                MiniKotak.Visible = false
+            else
+                MainFrame.Visible = true
+                CollapsedBar.Visible = false
+                MiniKotak.Visible = false
+            end
         end
     end)
 end)
