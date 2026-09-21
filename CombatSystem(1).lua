@@ -1,5 +1,5 @@
 -- CombatSystem.lua
--- Sistem Continuous Auto-Lock Target (Dropdown UI + Mobile/Delta Ready)
+-- Sistem Continuous Auto-Lock Target (Dropdown UI + Team Check + Mobile/Delta Ready)
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -20,14 +20,17 @@ local Config = {
     AutoFaceCharacter = true,      -- Karakter otomatis menghadap musuh
     CharacterFaceSpeed = 0.35,     -- Kecepatan putar badan karakter
     
-    -- Pilihan Part Target: "Head" atau "Torso" (RootPart/Torso)
-    TargetPartChoice = "Torso",
+    -- Pilihan Part Target: "Head" atau "Torso" (Default: "Head")
+    TargetPartChoice = "Head",
     
     -- Pilihan Mode Aim: "Distance" (Jarak 3D Terdekat) atau "Cursor" (Terdekat ke Layar/Kursor)
     LockMode = "Distance",
     
     -- Pilihan Target Entity: "All" (Player + Bot), "NPC" (Hanya Bot), "Player" (Hanya Player)
     TargetType = "All",
+    
+    -- Team Check: true (hanya bidik musuh beda team), false (bidik semua tanpa peduli team)
+    TeamCheck = true,
     
     -- Konfigurasi Hitbox Visual
     HitboxColor = Color3.fromRGB(255, 45, 75),       -- Warna Hitbox (Merah terang)
@@ -87,11 +90,11 @@ ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 pcall(function() ScreenGui.Parent = SafeParent end)
 
--- Main Frame (Ukuran dinamis untuk menampung dropdown)
+-- Main Frame (Ukuran dinamis untuk menampung 4 dropdown)
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 255, 0, 310)
-MainFrame.Position = UDim2.new(0, 20, 0.5, -155)
+MainFrame.Size = UDim2.new(0, 255, 0, 360)
+MainFrame.Position = UDim2.new(0, 20, 0.5, -180)
 MainFrame.BackgroundColor3 = Color3.fromRGB(20, 22, 28)
 MainFrame.BackgroundTransparency = 0.05
 MainFrame.BorderSizePixel = 0
@@ -277,14 +280,7 @@ local function CloseAllDropdowns()
     end
 end
 
--- Menutup dropdown jika user klik area luar
-MainFrame.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        -- Jangan langsung tutup jika user mengeklik tombol dropdown itu sendiri
-    end
-end)
-
-local function CreateDropdown(parent, labelText, yPos, options, defaultKey, onSelect)
+local function CreateDropdown(parent, labelText, yPos, options, defaultKey, zIndexBase, onSelect)
     -- Label Penjelas di Atas Dropdown
     local dLabel = Instance.new("TextLabel")
     dLabel.Size = UDim2.new(1, -20, 0, 14)
@@ -307,7 +303,7 @@ local function CreateDropdown(parent, labelText, yPos, options, defaultKey, onSe
     dButton.TextSize = 11
     dButton.TextColor3 = Color3.fromRGB(230, 235, 245)
     dButton.TextXAlignment = Enum.TextXAlignment.Left
-    dButton.ZIndex = 2
+    dButton.ZIndex = zIndexBase
     dButton.Parent = parent
 
     local dBtnCorner = Instance.new("UICorner")
@@ -327,7 +323,7 @@ local function CreateDropdown(parent, labelText, yPos, options, defaultKey, onSe
     arrow.TextColor3 = Color3.fromRGB(140, 145, 160)
     arrow.Font = Enum.Font.GothamBold
     arrow.TextSize = 9
-    arrow.ZIndex = 2
+    arrow.ZIndex = zIndexBase
     arrow.Parent = dButton
 
     -- Container List Pilihan (Floating Menu)
@@ -337,7 +333,7 @@ local function CreateDropdown(parent, labelText, yPos, options, defaultKey, onSe
     listFrame.BackgroundColor3 = Color3.fromRGB(22, 25, 32)
     listFrame.BorderSizePixel = 0
     listFrame.Visible = false
-    listFrame.ZIndex = 10 -- Always on top of other elements
+    listFrame.ZIndex = zIndexBase + 10
     listFrame.Parent = parent
 
     local listCorner = Instance.new("UICorner")
@@ -361,14 +357,13 @@ local function CreateDropdown(parent, labelText, yPos, options, defaultKey, onSe
         optBtn.Font = Enum.Font.Gotham
         optBtn.TextSize = 10
         optBtn.TextXAlignment = Enum.TextXAlignment.Left
-        optBtn.ZIndex = 11
+        optBtn.ZIndex = zIndexBase + 11
         optBtn.Parent = listFrame
 
         local optCorner = Instance.new("UICorner")
         optCorner.CornerRadius = UDim.new(0, 4)
         optCorner.Parent = optBtn
 
-        -- Set label default
         if opt.Value == defaultKey then
             dButton.Text = "  " .. opt.Name
             optBtn.TextColor3 = Color3.fromRGB(80, 210, 255)
@@ -380,7 +375,6 @@ local function CreateDropdown(parent, labelText, yPos, options, defaultKey, onSe
             listFrame.Visible = false
             activeDropdownList = nil
 
-            -- Reset warna opsi
             for _, child in ipairs(listFrame:GetChildren()) do
                 if child:IsA("TextButton") then
                     child.TextColor3 = Color3.fromRGB(200, 205, 215)
@@ -392,7 +386,6 @@ local function CreateDropdown(parent, labelText, yPos, options, defaultKey, onSe
         end)
     end
 
-    -- Toggle dropdown buka/tutup
     dButton.MouseButton1Click:Connect(function()
         if listFrame.Visible then
             listFrame.Visible = false
@@ -412,17 +405,16 @@ local function CreateDropdown(parent, labelText, yPos, options, defaultKey, onSe
 end
 
 -- ============================================================================
--- INISIALISASI 3 DROPDOWN
+-- INISIALISASI 4 DROPDOWN
 -- ============================================================================
 
 -- 1. Dropdown Target Part (Head / Torso)
 CreateDropdown(MainFrame, "TARGET BODY PART:", 132, {
-    { Name = "Torso / Badan (HumanoidRootPart)", Value = "Torso" },
-    { Name = "Head / Kepala", Value = "Head" }
-}, Config.TargetPartChoice, function(val)
+    { Name = "Head / Kepala", Value = "Head" },
+    { Name = "Torso / Badan (HumanoidRootPart)", Value = "Torso" }
+}, Config.TargetPartChoice, 16, function(val)
     Config.TargetPartChoice = val
     if AutoLockEnabled and CurrentTargetChar then
-        -- Update kuncian part target saat ini
         CurrentTargetPart = GetTargetPart(CurrentTargetChar)
     end
 end)
@@ -431,7 +423,7 @@ end)
 CreateDropdown(MainFrame, "AIM LOCK MODE:", 188, {
     { Name = "Jarak 3D Terdekat (Distance)", Value = "Distance" },
     { Name = "Kursor / Tengah Layar (2D)", Value = "Cursor" }
-}, Config.LockMode, function(val)
+}, Config.LockMode, 12, function(val)
     Config.LockMode = val
 end)
 
@@ -440,8 +432,20 @@ CreateDropdown(MainFrame, "TARGET ENTITY FILTER:", 244, {
     { Name = "Semua (Player + Bot / NPC)", Value = "All" },
     { Name = "Hanya Bot / NPC / Monster", Value = "NPC" },
     { Name = "Hanya Pemain Lain (Player)", Value = "Player" }
-}, Config.TargetType, function(val)
+}, Config.TargetType, 8, function(val)
     Config.TargetType = val
+    if AutoLockEnabled then
+        local best = FindBestTarget()
+        SetTarget(best)
+    end
+end)
+
+-- 4. Dropdown Team Check (Hanya Musuh vs Semua Player)
+CreateDropdown(MainFrame, "TEAM FILTER (TEAM CHECK):", 300, {
+    { Name = "Hanya Musuh (Beda Team) [Aktif]", Value = true },
+    { Name = "Bebas / Semua Team [Nonaktif]", Value = false }
+}, Config.TeamCheck, 4, function(val)
+    Config.TeamCheck = val
     if AutoLockEnabled then
         local best = FindBestTarget()
         SetTarget(best)
@@ -479,7 +483,6 @@ function GetTargetPart(char)
         if head and head:IsA("BasePart") then return head end
     end
     
-    -- Fallback ke Torso / RootPart
     return char:FindFirstChild("HumanoidRootPart")
         or char:FindFirstChild("Torso")
         or char:FindFirstChild("UpperTorso")
@@ -493,6 +496,23 @@ local function IsPlayerCharacter(char)
         end
     end
     return false, nil
+end
+
+-- Fungsi Verifikasi Team Check
+local function IsSameTeam(player)
+    if not player or player == LocalPlayer then return true end
+    
+    -- 1. Cek properti player.Team
+    if LocalPlayer.Team ~= nil and player.Team ~= nil then
+        return LocalPlayer.Team == player.Team
+    end
+    
+    -- 2. Cek properti player.TeamColor
+    if LocalPlayer.TeamColor ~= nil and player.TeamColor ~= nil then
+        return LocalPlayer.TeamColor == player.TeamColor
+    end
+    
+    return false
 end
 
 local function IsValidEnemy(char)
@@ -524,8 +544,13 @@ local function GetEnemiesSortedByDistance()
 
             if model ~= myChar and IsValidEnemy(model) then
                 local isPlayer, playerObj = IsPlayerCharacter(model)
-                local allowed = false
+                
+                -- Evaluasi Team Check jika target adalah Player
+                if isPlayer and Config.TeamCheck and IsSameTeam(playerObj) then
+                    return -- Lewati teman satu tim!
+                end
 
+                local allowed = false
                 if Config.TargetType == "All" then
                     allowed = true
                 elseif Config.TargetType == "NPC" and not isPlayer then
@@ -821,4 +846,4 @@ RunService.RenderStepped:Connect(function(dt)
     end)
 end)
 
-print("[AutoCombat] Berhasil di-load! Dropdown siap digunakan.")
+print("[AutoCombat] Berhasil di-load! Dropdown & Team Check siap digunakan.")
