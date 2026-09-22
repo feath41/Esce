@@ -31,9 +31,10 @@ end
 local Config = {
     MaxLockDistance = 80,          -- Jarak maksimal cari musuh (studs)
     BreakDistance = 100,           -- Jarak batas lepas target (otomatis MaxLockDistance + 20)
-    CameraSmoothing = 0.25,        -- Kehalusan gerakan kamera (0.1 halus, 1 instan)
+    LockAggressiveness = 50,       -- Keganasan Lock (1 - 100): 1=Smooth, 50=Seimbang, 100=Ganas
+    CameraSmoothing = 0.52,        -- Kehalusan gerakan kamera (0.05 halus s/d 1.0 instan)
     AutoFaceCharacter = true,      -- Karakter otomatis menghadap musuh
-    CharacterFaceSpeed = 0.35,     -- Kecepatan putar badan karakter
+    CharacterFaceSpeed = 0.54,     -- Kecepatan putar badan karakter (0.1 s/d 1.0)
     
     TargetPartChoice = "Head",     -- "Head" atau "Torso"
     LockMode = "FOV",              -- "FOV" (Hanya dalam Lingkaran FOV), "Distance" (Jarak 3D), "Cursor" (2D)
@@ -2237,6 +2238,197 @@ UserInputService.InputEnded:Connect(function(input)
     end
 end)
 
+-- ============================================================================
+-- SLIDER KEGANASAN AIM LOCK (SMOOTH - SEIMBANG - GANAS)
+-- ============================================================================
+PlayerTab.CanvasSize = UDim2.new(0, 0, 0, 540)
+
+local AggroContainer = Instance.new("Frame")
+AggroContainer.Name = "AggroContainer"
+AggroContainer.Size = UDim2.new(1, -28, 0, 64)
+AggroContainer.Position = UDim2.new(0, 14, 0, 452)
+AggroContainer.BackgroundTransparency = 1
+AggroContainer.Parent = PlayerTab
+
+local AggroTitle = Instance.new("TextLabel")
+AggroTitle.Size = UDim2.new(0.55, 0, 0, 14)
+AggroTitle.Position = UDim2.new(0, 0, 0, 0)
+AggroTitle.BackgroundTransparency = 1
+AggroTitle.Text = "KEGANASAN AIM LOCK:"
+AggroTitle.TextColor3 = Color3.fromRGB(150, 155, 170)
+AggroTitle.Font = Enum.Font.GothamMedium
+AggroTitle.TextSize = 10
+AggroTitle.TextXAlignment = Enum.TextXAlignment.Left
+AggroTitle.Parent = AggroContainer
+
+local function GetAggroTier(val)
+    if val < 35 then
+        return "Smooth", Color3.fromRGB(0, 180, 255)
+    elseif val <= 65 then
+        return "Seimbang", Color3.fromRGB(245, 180, 50)
+    else
+        return "Ganas", Color3.fromRGB(255, 60, 80)
+    end
+end
+
+local initialAggro = Config.LockAggressiveness or 50
+local initialTier, initialColor = GetAggroTier(initialAggro)
+
+local AggroValueLabel = Instance.new("TextLabel")
+AggroValueLabel.Size = UDim2.new(0.45, 0, 0, 14)
+AggroValueLabel.Position = UDim2.new(0.55, 0, 0, 0)
+AggroValueLabel.BackgroundTransparency = 1
+AggroValueLabel.Text = string.format("%d%% [%s]", initialAggro, initialTier)
+AggroValueLabel.TextColor3 = initialColor
+AggroValueLabel.Font = Enum.Font.GothamBold
+AggroValueLabel.TextSize = 10
+AggroValueLabel.TextXAlignment = Enum.TextXAlignment.Right
+AggroValueLabel.Parent = AggroContainer
+
+local AggroBar = Instance.new("Frame")
+AggroBar.Name = "AggroBar"
+AggroBar.Size = UDim2.new(1, 0, 0, 8)
+AggroBar.Position = UDim2.new(0, 0, 0, 20)
+AggroBar.BackgroundColor3 = Color3.fromRGB(30, 34, 46)
+AggroBar.BorderSizePixel = 0
+AggroBar.Parent = AggroContainer
+
+local AggroBarCorner = Instance.new("UICorner")
+AggroBarCorner.CornerRadius = UDim.new(1, 0)
+AggroBarCorner.Parent = AggroBar
+
+-- Penanda Fisik Garis Tengah (Seimbang 50%) pada Bar
+local MidDivider = Instance.new("Frame")
+MidDivider.Name = "MidDivider"
+MidDivider.Size = UDim2.new(0, 2, 0, 12)
+MidDivider.AnchorPoint = Vector2.new(0.5, 0.5)
+MidDivider.Position = UDim2.new(0.5, 0, 0.5, 0)
+MidDivider.BackgroundColor3 = Color3.fromRGB(70, 78, 100)
+MidDivider.BorderSizePixel = 0
+MidDivider.ZIndex = 2
+MidDivider.Parent = AggroBar
+
+local MidCorner = Instance.new("UICorner")
+MidCorner.CornerRadius = UDim.new(1, 0)
+MidCorner.Parent = MidDivider
+
+local AggroFill = Instance.new("Frame")
+AggroFill.Name = "AggroFill"
+local initialRatio = math.clamp((initialAggro - 1) / 99, 0, 1)
+AggroFill.Size = UDim2.new(initialRatio, 0, 1, 0)
+AggroFill.BackgroundColor3 = initialColor
+AggroFill.BorderSizePixel = 0
+AggroFill.Parent = AggroBar
+
+local AggroFillCorner = Instance.new("UICorner")
+AggroFillCorner.CornerRadius = UDim.new(1, 0)
+AggroFillCorner.Parent = AggroFill
+
+local AggroKnob = Instance.new("Frame")
+AggroKnob.Name = "AggroKnob"
+AggroKnob.Size = UDim2.new(0, 16, 0, 16)
+AggroKnob.AnchorPoint = Vector2.new(0.5, 0.5)
+AggroKnob.Position = UDim2.new(initialRatio, 0, 0.5, 0)
+AggroKnob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+AggroKnob.BorderSizePixel = 0
+AggroKnob.ZIndex = 3
+AggroKnob.Parent = AggroBar
+
+local AggroKnobCorner = Instance.new("UICorner")
+AggroKnobCorner.CornerRadius = UDim.new(1, 0)
+AggroKnobCorner.Parent = AggroKnob
+
+local AggroKnobStroke = Instance.new("UIStroke")
+AggroKnobStroke.Thickness = 1.5
+AggroKnobStroke.Color = initialColor
+AggroKnobStroke.Parent = AggroKnob
+
+-- Penanda Slider: Kiri (Smooth), Tengah (Seimbang), Kanan (Ganas)
+local LabelSmooth = Instance.new("TextLabel")
+LabelSmooth.Size = UDim2.new(0.33, 0, 0, 16)
+LabelSmooth.Position = UDim2.new(0, 0, 0, 32)
+LabelSmooth.BackgroundTransparency = 1
+LabelSmooth.Text = "◀ Smooth"
+LabelSmooth.TextColor3 = Color3.fromRGB(0, 180, 255)
+LabelSmooth.Font = Enum.Font.GothamMedium
+LabelSmooth.TextSize = 9
+LabelSmooth.TextXAlignment = Enum.TextXAlignment.Left
+LabelSmooth.Parent = AggroContainer
+
+local LabelBalance = Instance.new("TextLabel")
+LabelBalance.Size = UDim2.new(0.34, 0, 0, 16)
+LabelBalance.Position = UDim2.new(0.5, 0, 0, 32)
+LabelBalance.AnchorPoint = Vector2.new(0.5, 0)
+LabelBalance.BackgroundTransparency = 1
+LabelBalance.Text = "• Seimbang •"
+LabelBalance.TextColor3 = Color3.fromRGB(245, 180, 50)
+LabelBalance.Font = Enum.Font.GothamMedium
+LabelBalance.TextSize = 9
+LabelBalance.TextXAlignment = Enum.TextXAlignment.Center
+LabelBalance.Parent = AggroContainer
+
+local LabelAggro = Instance.new("TextLabel")
+LabelAggro.Size = UDim2.new(0.33, 0, 0, 16)
+LabelAggro.Position = UDim2.new(1, 0, 0, 32)
+LabelAggro.AnchorPoint = Vector2.new(1, 0)
+LabelAggro.BackgroundTransparency = 1
+LabelAggro.Text = "Ganas ▶"
+LabelAggro.TextColor3 = Color3.fromRGB(255, 70, 85)
+LabelAggro.Font = Enum.Font.GothamMedium
+LabelAggro.TextSize = 9
+LabelAggro.TextXAlignment = Enum.TextXAlignment.Right
+LabelAggro.Parent = AggroContainer
+
+local isAggroSliding = false
+
+local function UpdateAggroSlider(inputX)
+    pcall(function()
+        local barAbsolutePos = AggroBar.AbsolutePosition.X
+        local barAbsoluteSize = AggroBar.AbsoluteSize.X
+        local ratio = math.clamp((inputX - barAbsolutePos) / barAbsoluteSize, 0, 1)
+
+        local newVal = math.floor(1 + (ratio * 99))
+        Config.LockAggressiveness = newVal
+        -- 1 -> 0.05 (sangat halus), 50 -> 0.52 (seimbang), 100 -> 1.0 (instan/ganas)
+        Config.CameraSmoothing = 0.05 + ((newVal - 1) / 99) * 0.95
+        Config.CharacterFaceSpeed = 0.1 + ((newVal - 1) / 99) * 0.9
+        _G.FeathCombatConfig = Config
+
+        local tierName, tierColor = GetAggroTier(newVal)
+
+        AggroFill.Size = UDim2.new(ratio, 0, 1, 0)
+        AggroFill.BackgroundColor3 = tierColor
+        AggroKnob.Position = UDim2.new(ratio, 0, 0.5, 0)
+        AggroKnobStroke.Color = tierColor
+        AggroValueLabel.Text = string.format("%d%% [%s]", newVal, tierName)
+        AggroValueLabel.TextColor3 = tierColor
+    end)
+end
+
+AggroBar.InputBegan:Connect(function(input)
+    pcall(function()
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            isAggroSliding = true
+            UpdateAggroSlider(input.Position.X)
+        end
+    end)
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    pcall(function()
+        if isAggroSliding and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            UpdateAggroSlider(input.Position.X)
+        end
+    end)
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    pcall(function()
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            isAggroSliding = false
+        end
+    end)
+end)
 
 end
 
