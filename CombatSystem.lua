@@ -36,7 +36,7 @@ local Config = {
     CharacterFaceSpeed = 0.35,     -- Kecepatan putar badan karakter
     
     TargetPartChoice = "Head",     -- "Head" atau "Torso"
-    LockMode = "Distance",         -- "Distance" (Jarak 3D) atau "Cursor" (2D Layar)
+    LockMode = "FOV",              -- "FOV" (Hanya dalam Lingkaran FOV), "Distance" (Jarak 3D), "Cursor" (2D)
     TargetType = "All",            -- "All" (Player + Bot), "NPC" (Hanya Bot), "Player" (Hanya Player)
     TeamCheck = true,              -- true = hanya musuh, false = semua
     TargetSwitchMode = "Dynamic",   -- "Dynamic" = musuh terdekat, "LowestHP" = darah terendah, "Persistent" = sampai mati
@@ -1767,10 +1767,15 @@ CreateDropdown(PlayerTab, "TARGET SWITCH BEHAVIOR:", 184, {
 end)
 
 CreateDropdown(PlayerTab, "AIM LOCK MODE:", 236, {
+    { Name = "🎯 Target dalam Lingkaran FOV", Value = "FOV" },
     { Name = "Jarak 3D Terdekat (Distance)", Value = "Distance" },
     { Name = "Kursor / Tengah Layar (2D)", Value = "Cursor" }
 }, Config.LockMode, 12, function(val)
     Config.LockMode = val
+    if AutoLockEnabled then
+        local best = FindBestTarget()
+        SetTarget(best)
+    end
 end)
 
 CreateDropdown(PlayerTab, "TARGET ENTITY FILTER:", 288, {
@@ -2083,40 +2088,58 @@ function FindBestTarget()
         local enemies = GetEnemiesSortedByDistance()
         if #enemies == 0 then return end
 
-        if Config.TargetSwitchMode == "LowestHP" then
-            local lowestHP = math.huge
-            local shortestDist = math.huge
+        local centerPos = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+        local fovRadius = Config.BulletFOVRadius or 180
 
-            for _, entry in ipairs(enemies) do
-                local hp = entry.Health or math.huge
-                if hp < lowestHP then
-                    lowestHP = hp
-                    shortestDist = entry.Distance
-                    best = entry
-                elseif math.abs(hp - lowestHP) < 0.5 and entry.Distance < shortestDist then
-                    shortestDist = entry.Distance
-                    best = entry
+        -- Kumpulkan musuh yang hanya berada di dalam lingkaran FOV tengah layar
+        local fovEnemies = {}
+        for _, entry in ipairs(enemies) do
+            local screenPos, onScreen = Camera:WorldToViewportPoint(entry.Part.Position)
+            if onScreen then
+                local screenDist = (Vector2.new(screenPos.X, screenPos.Y) - centerPos).Magnitude
+                if screenDist <= fovRadius then
+                    table.insert(fovEnemies, {
+                        Entry = entry,
+                        ScreenDist = screenDist
+                    })
                 end
             end
-        elseif Config.LockMode == "Distance" then
-            best = enemies[1]
-        else
-            local centerPos = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-            local shortestScreenDist = math.huge
+        end
 
-            for _, entry in ipairs(enemies) do
-                local screenPos, onScreen = Camera:WorldToViewportPoint(entry.Part.Position)
-                if onScreen then
-                    local screenDist = (Vector2.new(screenPos.X, screenPos.Y) - centerPos).Magnitude
-                    if screenDist < shortestScreenDist then
-                        shortestScreenDist = screenDist
+        -- Kunci target hanya jika musuh berada di dalam lingkaran FOV
+        if #fovEnemies > 0 then
+            if Config.TargetSwitchMode == "LowestHP" then
+                local lowestHP = math.huge
+                local shortestDist = math.huge
+                for _, item in ipairs(fovEnemies) do
+                    local entry = item.Entry
+                    local hp = entry.Health or math.huge
+                    if hp < lowestHP then
+                        lowestHP = hp
+                        shortestDist = entry.Distance
+                        best = entry
+                    elseif math.abs(hp - lowestHP) < 0.5 and entry.Distance < shortestDist then
+                        shortestDist = entry.Distance
                         best = entry
                     end
                 end
-            end
-
-            if not best then
-                best = enemies[1]
+            elseif Config.LockMode == "Cursor" then
+                local shortestScreenDist = math.huge
+                for _, item in ipairs(fovEnemies) do
+                    if item.ScreenDist < shortestScreenDist then
+                        shortestScreenDist = item.ScreenDist
+                        best = item.Entry
+                    end
+                end
+            else
+                -- LockMode == "Distance" (default): Musuh terdekat di dalam FOV
+                local shortestDist = math.huge
+                for _, item in ipairs(fovEnemies) do
+                    if item.Entry.Distance < shortestDist then
+                        shortestDist = item.Entry.Distance
+                        best = item.Entry
+                    end
+                end
             end
         end
     end)
@@ -2269,6 +2292,8 @@ function CreateBulletTracer(fromPos, toPos)
             tracer.Name = "CombatBulletTracer"
             tracer.Anchored = true
             tracer.CanCollide = false
+            tracer.CanTouch = false
+            tracer.CanQuery = false
             tracer.CastShadow = false
             tracer.Material = Enum.Material.Neon
             tracer.Color = cfg.BulletTracerColor or Color3.fromRGB(0, 225, 255)
@@ -2309,6 +2334,31 @@ pcall(function()
         if not _G.FeathMetamethodsHooked then
             _G.FeathMetamethodsHooked = true
 
+            -- Helper: Filter agar raycast & mouse dari script kamera Roblox tidak terganggu
+            local function IsCameraCaller()
+                local scr = nil
+                if typeof(getcallingscript) == "function" then
+                    pcall(function() scr = getcallingscript() end)
+                end
+                if scr then
+                    local sName = string.lower(scr.Name)
+                    if sName:find("camera") or sName:find("popper") or sName:find("zoom") 
+                       or sName:find("playermodule") or sName:find("transparency") 
+                       or sName:find("shiftlock") or sName:find("control") 
+                       or sName:find("basecamera") or sName:find("invisicam") then
+                        return true
+                    end
+                    local myPlr = LocalPlayer
+                    if myPlr and myPlr:FindFirstChild("PlayerScripts") then
+                        local pm = myPlr.PlayerScripts:FindFirstChild("PlayerModule")
+                        if pm and scr:IsDescendantOf(pm) then
+                            return true
+                        end
+                    end
+                end
+                return false
+            end
+
             local oldNamecall
             oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
                 local method = getnamecallmethod()
@@ -2319,33 +2369,36 @@ pcall(function()
                         or method == "FindPartOnRayWithIgnoreList"
                         or method == "FindPartOnRayWithWhitelist" then
 
-                        local hitChance = cfg.BulletHitChance or 100
-                        if math.random(1, 100) <= hitChance then
-                            local fn = _G.FeathGetBulletTarget
-                            local targetPart, targetPos = fn and fn()
-                            if targetPart and targetPos then
-                                local args = {...}
-                                if method == "Raycast" then
-                                    local origin = args[1]
-                                    local dir = args[2]
-                                    if typeof(origin) == "Vector3" and typeof(dir) == "Vector3" then
-                                        local mag = math.max(dir.Magnitude, 1000)
-                                        args[2] = (targetPos - origin).Unit * mag
-                                        if _G.FeathCreateBulletTracer then
-                                            _G.FeathCreateBulletTracer(origin, targetPos)
+                        -- Jangan ubah raycast internal kamera (PopperCam / ZoomController)
+                        if not IsCameraCaller() then
+                            local hitChance = cfg.BulletHitChance or 100
+                            if math.random(1, 100) <= hitChance then
+                                local fn = _G.FeathGetBulletTarget
+                                local targetPart, targetPos = fn and fn()
+                                if targetPart and targetPos then
+                                    local args = {...}
+                                    if method == "Raycast" then
+                                        local origin = args[1]
+                                        local dir = args[2]
+                                        if typeof(origin) == "Vector3" and typeof(dir) == "Vector3" then
+                                            local mag = math.max(dir.Magnitude, 1000)
+                                            args[2] = (targetPos - origin).Unit * mag
+                                            if _G.FeathCreateBulletTracer then
+                                                _G.FeathCreateBulletTracer(origin, targetPos)
+                                            end
+                                            return oldNamecall(self, table.unpack(args))
                                         end
-                                        return oldNamecall(self, table.unpack(args))
-                                    end
-                                else
-                                    local ray = args[1]
-                                    if typeof(ray) == "Ray" then
-                                        local mag = math.max(ray.Direction.Magnitude, 1000)
-                                        local newDir = (targetPos - ray.Origin).Unit * mag
-                                        args[1] = Ray.new(ray.Origin, newDir)
-                                        if _G.FeathCreateBulletTracer then
-                                            _G.FeathCreateBulletTracer(ray.Origin, targetPos)
+                                    else
+                                        local ray = args[1]
+                                        if typeof(ray) == "Ray" then
+                                            local mag = math.max(ray.Direction.Magnitude, 1000)
+                                            local newDir = (targetPos - ray.Origin).Unit * mag
+                                            args[1] = Ray.new(ray.Origin, newDir)
+                                            if _G.FeathCreateBulletTracer then
+                                                _G.FeathCreateBulletTracer(ray.Origin, targetPos)
+                                            end
+                                            return oldNamecall(self, table.unpack(args))
                                         end
-                                        return oldNamecall(self, table.unpack(args))
                                     end
                                 end
                             end
@@ -2362,19 +2415,18 @@ pcall(function()
                     local ok, isMouse = pcall(function() return typeof(self) == "Instance" and self:IsA("Mouse") end)
                     if ok and isMouse then
                         if key == "Hit" or key == "Target" then
-                            local hitChance = cfg.BulletHitChance or 100
-                            if math.random(1, 100) <= hitChance then
-                                local fn = _G.FeathGetBulletTarget
-                                local targetPart, targetPos = fn and fn()
-                                if targetPart and targetPos then
-                                    if key == "Hit" then
-                                        if _G.FeathCreateBulletTracer then
-                                            local camPos = Camera and Camera.CFrame.Position or targetPos
-                                            _G.FeathCreateBulletTracer(camPos, targetPos)
+                            -- Jangan alihkan Mouse.Hit bila dipanggil oleh script kamera (mencegah kamera zoom in-out)
+                            if not IsCameraCaller() then
+                                local hitChance = cfg.BulletHitChance or 100
+                                if math.random(1, 100) <= hitChance then
+                                    local fn = _G.FeathGetBulletTarget
+                                    local targetPart, targetPos = fn and fn()
+                                    if targetPart and targetPos then
+                                        if key == "Hit" then
+                                            return CFrame.new(targetPos)
+                                        elseif key == "Target" then
+                                            return targetPart
                                         end
-                                        return CFrame.new(targetPos)
-                                    elseif key == "Target" then
-                                        return targetPart
                                     end
                                 end
                             end
@@ -2562,20 +2614,42 @@ function TriggerShoot()
             tool:Activate()
         end
 
-        -- 2. Simulasi klik mouse untuk senjata berbasis event input
-        if typeof(mouse1click) == "function" then
-            mouse1click()
-        elseif typeof(mouse1press) == "function" and typeof(mouse1release) == "function" then
-            mouse1press()
-            task.delay(0.02, function() pcall(mouse1release) end)
-        else
-            local vu = game:GetService("VirtualUser")
-            if vu then
-                vu:CaptureController()
-                vu:Button1Down(Vector2.new(0, 0))
-                task.delay(0.02, function()
-                    pcall(function() vu:Button1Up(Vector2.new(0, 0)) end)
+        -- 2. Simulasi input aman (Mobile Friendly - TANPA CaptureController)
+        local isTouchDevice = UserInputService.TouchEnabled
+        if isTouchDevice then
+            -- Khusus Mobile / Delta Android:
+            -- tool:Activate() di atas sudah menembakkan senjata tool Roblox.
+            -- Gunakan VirtualInputManager tanpa CaptureController agar tombol loncat & gerak TIDAK hilang!
+            local vim = nil
+            pcall(function() vim = game:GetService("VirtualInputManager") end)
+            if vim then
+                local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+                pcall(function()
+                    vim:SendMouseButtonEvent(center.X, center.Y, 0, true, game, 1)
+                    task.delay(0.02, function()
+                        pcall(function() vim:SendMouseButtonEvent(center.X, center.Y, 0, false, game, 1) end)
+                    end)
                 end)
+            end
+        else
+            -- Di PC
+            if typeof(mouse1click) == "function" then
+                mouse1click()
+            elseif typeof(mouse1press) == "function" and typeof(mouse1release) == "function" then
+                mouse1press()
+                task.delay(0.02, function() pcall(mouse1release) end)
+            else
+                local vim = nil
+                pcall(function() vim = game:GetService("VirtualInputManager") end)
+                if vim then
+                    local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+                    pcall(function()
+                        vim:SendMouseButtonEvent(center.X, center.Y, 0, true, game, 1)
+                        task.delay(0.02, function()
+                            pcall(function() vim:SendMouseButtonEvent(center.X, center.Y, 0, false, game, 1) end)
+                        end)
+                    end)
+                end
             end
         end
     end)
@@ -3078,7 +3152,15 @@ local function PopulateTPDropdown()
     local targets = ScanTargetsForTP()
     local options = {}
 
-    -- Option 1: Terdekat (Auto)
+    -- Option 1: Dalam FOV (Auto)
+    table.insert(options, {
+        Label = "🎯 [Target di Dalam FOV (Auto)]",
+        Nickname = "🎯 [Target di Dalam FOV (Auto)]",
+        Model = nil,
+        Mode = "FOV"
+    })
+
+    -- Option 2: Terdekat (Auto)
     table.insert(options, {
         Label = "⭐ [Target Terdekat (Auto)]",
         Nickname = "⭐ [Target Terdekat (Auto)]",
@@ -3086,7 +3168,7 @@ local function PopulateTPDropdown()
         Mode = "Auto"
     })
 
-    -- Option 2: HP Terendah (Auto)
+    -- Option 3: HP Terendah (Auto)
     table.insert(options, {
         Label = "🩸 [Target HP Terendah (Auto)]",
         Nickname = "🩸 [Target HP Terendah (Auto)]",
@@ -3119,7 +3201,9 @@ local function PopulateTPDropdown()
         btn.Text = "  " .. opt.Label
         
         local isSelected = false
-        if opt.Mode == "Auto" and SelectedTPMode == "Auto" then
+        if opt.Mode == "FOV" and SelectedTPMode == "FOV" then
+            isSelected = true
+        elseif opt.Mode == "Auto" and SelectedTPMode == "Auto" then
             isSelected = true
         elseif opt.Mode == "LowestHP" and SelectedTPMode == "LowestHP" then
             isSelected = true
@@ -3139,7 +3223,14 @@ local function PopulateTPDropdown()
         c.Parent = btn
 
         btn.MouseButton1Click:Connect(function()
-            if opt.Mode == "Auto" then
+            if opt.Mode == "FOV" then
+                SelectedTPModel = nil
+                SelectedTPName = "FOV"
+                SelectedTPMode = "FOV"
+                TPDropdownBtn.Text = "  🎯 [Target di Dalam FOV (Auto)]"
+                TPStatusLabel.Text = "Mode FOV: Target di dalam lingkaran FOV akan dipilih saat aksi"
+                TPStatusLabel.TextColor3 = Color3.fromRGB(0, 200, 255)
+            elseif opt.Mode == "Auto" then
                 SelectedTPModel = nil
                 SelectedTPName = "Auto"
                 SelectedTPMode = "Auto"
@@ -3177,6 +3268,17 @@ local function ResolveActiveTarget()
         local hum = SelectedTPModel:FindFirstChildOfClass("Humanoid")
         local hp = hum and math.floor(hum.Health) or 0
         return SelectedTPModel, dName, hp
+    end
+
+    if SelectedTPMode == "FOV" then
+        local best = FindBestTarget()
+        if best and best.Character and IsValidEnemy(best.Character) then
+            local isPlayer, playerObj = IsPlayerCharacter(best.Character)
+            local dName = isPlayer and (playerObj.DisplayName ~= "" and playerObj.DisplayName or playerObj.Name) or best.Character.Name
+            local hp = best.Health or 100
+            return best.Character, dName, hp
+        end
+        return nil, nil, nil
     end
 
     local targets = ScanTargetsForTP()
@@ -3397,7 +3499,7 @@ RunService.RenderStepped:Connect(function(dt)
         UpdateVisualHighlights()
 
         -- Update Tampilan Lingkaran FOV (Field of View)
-        local shouldShowFOV = (Config.BulletTrackingEnabled or Config.AutoShootEnabled) and Config.BulletShowFOVCircle and Config.BulletUseFOV
+        local shouldShowFOV = (Config.BulletTrackingEnabled or Config.AutoShootEnabled or AutoLockEnabled) and Config.BulletShowFOVCircle and Config.BulletUseFOV
         if shouldShowFOV then
             local diameter = Config.BulletFOVRadius * 2
             FOVCircle.Size = UDim2.new(0, diameter, 0, diameter)
@@ -3405,7 +3507,10 @@ RunService.RenderStepped:Connect(function(dt)
 
             local shootTarget = Config.AutoShootEnabled and GetAutoShootTarget()
             local tPart, _ = GetBulletTarget()
-            if shootTarget then
+            if AutoLockEnabled and CurrentTargetPart then
+                FOVStroke.Color = Color3.fromRGB(255, 45, 75) -- Merah Terang: Target Terkunci AimLock
+                FOVStroke.Transparency = 0.15
+            elseif shootTarget then
                 FOVStroke.Color = Color3.fromRGB(50, 225, 120) -- Hijau: Siap Tembak
                 FOVStroke.Transparency = 0.15
             elseif tPart then
@@ -3413,7 +3518,7 @@ RunService.RenderStepped:Connect(function(dt)
                     FOVStroke.Color = Color3.fromRGB(245, 155, 40) -- Oranye: Terhalang Tembok
                     FOVStroke.Transparency = 0.25
                 else
-                    FOVStroke.Color = Color3.fromRGB(255, 60, 80) -- Merah: Target Terkunci
+                    FOVStroke.Color = Color3.fromRGB(255, 60, 80) -- Merah: Target Terkunci Silent Aim
                     FOVStroke.Transparency = 0.2
                 end
             else
@@ -3447,7 +3552,11 @@ RunService.RenderStepped:Connect(function(dt)
                 SetTarget(bestTarget)
             else
                 local curDist = (CurrentTargetPart.Position - myRoot.Position).Magnitude
-                if curDist > Config.BreakDistance then
+                local screenPos, onScreen = Camera:WorldToViewportPoint(CurrentTargetPart.Position)
+                local centerPos = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+                local outOfFOV = not onScreen or ((Vector2.new(screenPos.X, screenPos.Y) - centerPos).Magnitude > (Config.BulletFOVRadius + 60))
+
+                if curDist > Config.BreakDistance or outOfFOV then
                     SetTarget(bestTarget)
                 elseif bestTarget and bestTarget.Character ~= CurrentTargetChar then
                     local newDist = (bestTarget.Part.Position - myRoot.Position).Magnitude
@@ -3463,7 +3572,11 @@ RunService.RenderStepped:Connect(function(dt)
                 SetTarget(bestTarget)
             else
                 local curDist = (CurrentTargetPart.Position - myRoot.Position).Magnitude
-                if curDist > Config.BreakDistance then
+                local screenPos, onScreen = Camera:WorldToViewportPoint(CurrentTargetPart.Position)
+                local centerPos = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+                local outOfFOV = not onScreen or ((Vector2.new(screenPos.X, screenPos.Y) - centerPos).Magnitude > (Config.BulletFOVRadius + 60))
+
+                if curDist > Config.BreakDistance or outOfFOV then
                     SetTarget(bestTarget)
                 elseif bestTarget and bestTarget.Character ~= CurrentTargetChar then
                     local curHum = CurrentTargetChar:FindFirstChildOfClass("Humanoid")
@@ -3482,7 +3595,11 @@ RunService.RenderStepped:Connect(function(dt)
                 SetTarget(bestTarget)
             else
                 local curDist = (CurrentTargetPart.Position - myRoot.Position).Magnitude
-                if curDist > Config.BreakDistance then
+                local screenPos, onScreen = Camera:WorldToViewportPoint(CurrentTargetPart.Position)
+                local centerPos = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+                local outOfFOV = not onScreen or ((Vector2.new(screenPos.X, screenPos.Y) - centerPos).Magnitude > (Config.BulletFOVRadius + 60))
+
+                if curDist > Config.BreakDistance or outOfFOV then
                     local bestTarget = FindBestTarget()
                     SetTarget(bestTarget)
                 end
@@ -3503,12 +3620,14 @@ RunService.RenderStepped:Connect(function(dt)
                 Camera.CFrame = Camera.CFrame:Lerp(targetCamCFrame, Config.CameraSmoothing)
             end
 
-            -- 2. Hadap Karakter ke Musuh/Bot
+            -- 2. Hadap Karakter ke Musuh/Bot (Aman & Tidak Mematikan Gerakan/Loncat)
             if Config.AutoFaceCharacter then
                 local lookVector = Vector3.new(targetPos.X, myRoot.Position.Y, targetPos.Z)
                 if (lookVector - myRoot.Position).Magnitude > 0.01 then
                     local targetCharCFrame = CFrame.new(myRoot.Position, lookVector)
+                    local oldVel = myRoot.AssemblyLinearVelocity
                     myRoot.CFrame = myRoot.CFrame:Lerp(targetCharCFrame, Config.CharacterFaceSpeed)
+                    pcall(function() myRoot.AssemblyLinearVelocity = oldVel end)
                 end
             end
         end
