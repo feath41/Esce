@@ -85,7 +85,12 @@ local Config = {
     AutoShootWallCheck = true,     -- Cek tembok: hanya tembak jika tidak ada halangan
     AutoShootMode = "All",         -- "All" (Aim Lock + FOV), "FOV", "AimLock"
     AutoShootDelayMs = 100,        -- Jeda tembak (ms): 50 - 500 ms
-    AutoShootKey = Enum.KeyCode.G
+    AutoShootKey = Enum.KeyCode.G,
+
+    -- Konfigurasi External Mobile Controls (Joystick & Tombol Loncat di Layar Pemain)
+    ExternalControlsEnabled = true, -- Selalu tampil di layar pemain (HUD) untuk mobile
+    ExternalControlsSize = 120,     -- Ukuran diameter joystick (pixel)
+    ExternalJumpSize = 72          -- Ukuran diameter tombol jump (pixel)
 }
 
 Config.BreakDistance = Config.MaxLockDistance + 20
@@ -129,8 +134,11 @@ pcall(function()
     if _G.CombatFlyHeartbeat then _G.CombatFlyHeartbeat:Disconnect() _G.CombatFlyHeartbeat = nil end
     if _G.CombatFlyNoclip then _G.CombatFlyNoclip:Disconnect() _G.CombatFlyNoclip = nil end
     if _G.CombatBulletProjectileConn then _G.CombatBulletProjectileConn:Disconnect() _G.CombatBulletProjectileConn = nil end
+    if _G.CombatExternalControlsConn then _G.CombatExternalControlsConn:Disconnect() _G.CombatExternalControlsConn = nil end
     local oldGui = SafeParent:FindFirstChild("CombatTargetGui")
     if oldGui then oldGui:Destroy() end
+    local oldControlsGui = SafeParent:FindFirstChild("CombatExternalControlsGui")
+    if oldControlsGui then oldControlsGui:Destroy() end
     local oldHighlight = game:FindFirstChild("CombatTargetHitboxHighlight", true)
     if oldHighlight then oldHighlight:Destroy() end
     local oldBox = game:FindFirstChild("CombatTargetHitboxBox", true)
@@ -156,9 +164,292 @@ local TPScanBtn, TPDropdownBtn, TPArrow, TPListFrame
 local TPButton, FlyButton, TPStatusLabel
 local TrackingStatusLabel, TrackingTargetLabel, TrackingToggleButton
 local AutoShootToggleBtn, AutoShootToggleStroke
+local ExternalControlsToggleBtn, ExternalControlsToggleStroke
 local TargetNameLabel, DistanceLabel, HealthBarFill
 local ToggleButton, SwitchButton
 local MaxDistance = 150
+
+-- ============================================================================
+-- EXTERNAL MOBILE CONTROLS (JOYSTICK & TOMBOL LONCAT MANDIRI)
+-- Dibuat langsung di layar pemain (HUD), BUKAN di dalam frame UI menu script.
+-- Selalu ada di layar pemain agar saat Auto Shoot aktif atau tombol bawaan Roblox
+-- terhapus/tersembunyi karena simulasi input mouse, pemain tetap leluasa bergerak & loncat.
+-- Seluruh proses & event dibungkus pcall.
+-- ============================================================================
+local ExternalControlsGui, ExternalControlsFrame
+local JoystickBase, JoystickKnob, JumpButton, JumpStroke
+local thumbstickVector = Vector2.zero
+local activeJoystickTouch = nil
+local isJumping = false
+
+pcall(function()
+    ExternalControlsGui = Instance.new("ScreenGui")
+    ExternalControlsGui.Name = "CombatExternalControlsGui"
+    ExternalControlsGui.ResetOnSpawn = false
+    ExternalControlsGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    ExternalControlsGui.IgnoreGuiInset = true
+    ExternalControlsGui.DisplayOrder = 999999
+    pcall(function() ExternalControlsGui.Parent = SafeParent end)
+
+    ExternalControlsFrame = Instance.new("Frame")
+    ExternalControlsFrame.Name = "ExternalControlsFrame"
+    ExternalControlsFrame.Size = UDim2.new(1, 0, 1, 0)
+    ExternalControlsFrame.Position = UDim2.new(0, 0, 0, 0)
+    ExternalControlsFrame.BackgroundTransparency = 1
+    ExternalControlsFrame.BorderSizePixel = 0
+    ExternalControlsFrame.Parent = ExternalControlsGui
+
+    -- 1. JOYSTICK ANALOG EXTERNAL (Bawah-Kiri Layar Pemain)
+    local joySize = Config.ExternalControlsSize or 120
+    JoystickBase = Instance.new("Frame")
+    JoystickBase.Name = "ExternalJoystickBase"
+    JoystickBase.Size = UDim2.new(0, joySize, 0, joySize)
+    JoystickBase.Position = UDim2.new(0, 40, 1, -joySize - 40)
+    JoystickBase.BackgroundColor3 = Color3.fromRGB(15, 18, 26)
+    JoystickBase.BackgroundTransparency = 0.45
+    JoystickBase.BorderSizePixel = 0
+    JoystickBase.Active = true
+    JoystickBase.Parent = ExternalControlsFrame
+
+    local baseCorner = Instance.new("UICorner")
+    baseCorner.CornerRadius = UDim.new(1, 0)
+    baseCorner.Parent = JoystickBase
+
+    local baseStroke = Instance.new("UIStroke")
+    baseStroke.Thickness = 2
+    baseStroke.Color = Color3.fromRGB(0, 180, 255)
+    baseStroke.Transparency = 0.35
+    baseStroke.Parent = JoystickBase
+
+    local dirCenter = Instance.new("Frame")
+    dirCenter.Size = UDim2.new(0, 8, 0, 8)
+    dirCenter.AnchorPoint = Vector2.new(0.5, 0.5)
+    dirCenter.Position = UDim2.new(0.5, 0, 0.5, 0)
+    dirCenter.BackgroundColor3 = Color3.fromRGB(0, 180, 255)
+    dirCenter.BackgroundTransparency = 0.5
+    dirCenter.BorderSizePixel = 0
+    dirCenter.Parent = JoystickBase
+
+    local dirCorner = Instance.new("UICorner")
+    dirCorner.CornerRadius = UDim.new(1, 0)
+    dirCorner.Parent = dirCenter
+
+    local knobSize = math.floor(joySize * 0.44)
+    JoystickKnob = Instance.new("Frame")
+    JoystickKnob.Name = "ExternalJoystickKnob"
+    JoystickKnob.Size = UDim2.new(0, knobSize, 0, knobSize)
+    JoystickKnob.AnchorPoint = Vector2.new(0.5, 0.5)
+    JoystickKnob.Position = UDim2.new(0.5, 0, 0.5, 0)
+    JoystickKnob.BackgroundColor3 = Color3.fromRGB(0, 160, 255)
+    JoystickKnob.BackgroundTransparency = 0.2
+    JoystickKnob.BorderSizePixel = 0
+    JoystickKnob.Parent = JoystickBase
+
+    local knobCorner = Instance.new("UICorner")
+    knobCorner.CornerRadius = UDim.new(1, 0)
+    knobCorner.Parent = JoystickKnob
+
+    local knobStroke = Instance.new("UIStroke")
+    knobStroke.Thickness = 2
+    knobStroke.Color = Color3.fromRGB(255, 255, 255)
+    knobStroke.Transparency = 0.2
+    knobStroke.Parent = JoystickKnob
+
+    -- 2. TOMBOL LONCAT EXTERNAL (Bawah-Kanan Layar Pemain)
+    local jumpSize = Config.ExternalJumpSize or 72
+    JumpButton = Instance.new("ImageButton")
+    JumpButton.Name = "ExternalJumpButton"
+    JumpButton.Size = UDim2.new(0, jumpSize, 0, jumpSize)
+    JumpButton.Position = UDim2.new(1, -jumpSize - 40, 1, -jumpSize - 55)
+    JumpButton.BackgroundColor3 = Color3.fromRGB(15, 18, 26)
+    JumpButton.BackgroundTransparency = 0.35
+    JumpButton.BorderSizePixel = 0
+    JumpButton.AutoButtonColor = false
+    JumpButton.Active = true
+    JumpButton.Parent = ExternalControlsFrame
+
+    local jumpCorner = Instance.new("UICorner")
+    jumpCorner.CornerRadius = UDim.new(1, 0)
+    jumpCorner.Parent = JumpButton
+
+    JumpStroke = Instance.new("UIStroke")
+    JumpStroke.Thickness = 2
+    JumpStroke.Color = Color3.fromRGB(0, 180, 255)
+    JumpStroke.Transparency = 0.3
+    JumpStroke.Parent = JumpButton
+
+    local jumpText = Instance.new("TextLabel")
+    jumpText.Size = UDim2.new(1, 0, 1, 0)
+    jumpText.BackgroundTransparency = 1
+    jumpText.Text = "JUMP\n▲"
+    jumpText.TextColor3 = Color3.fromRGB(255, 255, 255)
+    jumpText.Font = Enum.Font.GothamBold
+    jumpText.TextSize = 13
+    jumpText.Parent = JumpButton
+
+    ExternalControlsGui.Enabled = (Config.ExternalControlsEnabled ~= false)
+
+    -- Event & Input Handling Touch Joystick (Multi-Touch Compatible)
+    local function UpdateKnobPosition(inputPos)
+        pcall(function()
+            if not JoystickBase or not JoystickKnob then return end
+            local basePos = JoystickBase.AbsolutePosition
+            local baseSize = JoystickBase.AbsoluteSize
+            local center = basePos + (baseSize / 2)
+            local maxRadius = math.max((baseSize.X / 2) - 4, 1)
+
+            local delta = inputPos - center
+            local dist = delta.Magnitude
+            if dist > maxRadius then
+                delta = delta.Unit * maxRadius
+                dist = maxRadius
+            end
+
+            JoystickKnob.Position = UDim2.new(0.5, delta.X, 0.5, delta.Y)
+
+            if maxRadius > 0 then
+                thumbstickVector = Vector2.new(delta.X / maxRadius, delta.Y / maxRadius)
+            else
+                thumbstickVector = Vector2.zero
+            end
+        end)
+    end
+
+    local function ResetKnobPosition()
+        pcall(function()
+            activeJoystickTouch = nil
+            thumbstickVector = Vector2.zero
+            if JoystickKnob then
+                local resetTween = TweenService:Create(
+                    JoystickKnob,
+                    TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+                    { Position = UDim2.new(0.5, 0, 0.5, 0) }
+                )
+                resetTween:Play()
+            end
+
+            local char = LocalPlayer.Character
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            if hum then
+                hum:Move(Vector3.zero, false)
+            end
+        end)
+    end
+
+    if JoystickBase then
+        JoystickBase.InputBegan:Connect(function(input)
+            pcall(function()
+                if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+                    if not activeJoystickTouch then
+                        activeJoystickTouch = input
+                        UpdateKnobPosition(Vector2.new(input.Position.X, input.Position.Y))
+                    end
+                end
+            end)
+        end)
+    end
+
+    UserInputService.InputChanged:Connect(function(input)
+        pcall(function()
+            if activeJoystickTouch and input == activeJoystickTouch then
+                UpdateKnobPosition(Vector2.new(input.Position.X, input.Position.Y))
+            end
+        end)
+    end)
+
+    UserInputService.InputEnded:Connect(function(input)
+        pcall(function()
+            if activeJoystickTouch and input == activeJoystickTouch then
+                ResetKnobPosition()
+            end
+        end)
+    end)
+
+    if UserInputService.TouchEnded then
+        UserInputService.TouchEnded:Connect(function(touch)
+            pcall(function()
+                if activeJoystickTouch and touch == activeJoystickTouch then
+                    ResetKnobPosition()
+                end
+            end)
+        end)
+    end
+
+    -- Event & Input Handling Tombol Loncat (Jump Button)
+    if JumpButton then
+        local function PerformJump()
+            pcall(function()
+                local char = LocalPlayer.Character
+                local hum = char and char:FindFirstChildOfClass("Humanoid")
+                if hum and hum.Health > 0 then
+                    hum.Jump = true
+                    hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                end
+            end)
+        end
+
+        JumpButton.InputBegan:Connect(function(input)
+            pcall(function()
+                if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+                    isJumping = true
+                    JumpButton.BackgroundColor3 = Color3.fromRGB(0, 160, 240)
+                    if JumpStroke then
+                        JumpStroke.Color = Color3.fromRGB(255, 255, 255)
+                        JumpStroke.Transparency = 0.1
+                    end
+                    PerformJump()
+                end
+            end)
+        end)
+
+        JumpButton.InputEnded:Connect(function(input)
+            pcall(function()
+                if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+                    isJumping = false
+                    JumpButton.BackgroundColor3 = Color3.fromRGB(15, 18, 26)
+                    if JumpStroke then
+                        JumpStroke.Color = Color3.fromRGB(0, 180, 255)
+                        JumpStroke.Transparency = 0.3
+                    end
+                end
+            end)
+        end)
+    end
+end)
+
+-- Loop Pergerakan Karakter dari Joystick & Jump External (RenderStepped)
+pcall(function()
+    _G.CombatExternalControlsConn = RunService.RenderStepped:Connect(function()
+        pcall(function()
+            if not Config.ExternalControlsEnabled then return end
+
+            local char = LocalPlayer.Character
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            if not hum or hum.Health <= 0 then return end
+
+            -- 1. Gerakan dari External Joystick (Kamera-Relatif di bidang XZ)
+            if thumbstickVector and thumbstickVector.Magnitude > 0.05 then
+                local cam = workspace.CurrentCamera
+                if cam then
+                    local look = cam.CFrame.LookVector
+                    local right = cam.CFrame.RightVector
+                    local flatLook = Vector3.new(look.X, 0, look.Z)
+                    local flatRight = Vector3.new(right.X, 0, right.Z)
+                    if flatLook.Magnitude > 0.001 then flatLook = flatLook.Unit else flatLook = Vector3.new(0, 0, -1) end
+                    if flatRight.Magnitude > 0.001 then flatRight = flatRight.Unit else flatRight = Vector3.new(1, 0, 0) end
+
+                    local moveDir = (flatRight * thumbstickVector.X) + (flatLook * (-thumbstickVector.Y))
+                    hum:Move(moveDir, false)
+                end
+            end
+
+            -- 2. Tahan tombol loncat jika pemain masih menekan Jump
+            if isJumping then
+                hum.Jump = true
+            end
+        end)
+    end)
+end)
 
 do
 
@@ -1350,7 +1641,7 @@ CreateAxisSlider(VisualTab, "RADIUS Z (DEPAN - BELAKANG):", 290, "HighlightRadiu
 -- ============================================================================
 -- 3. ISI TAB TRACKING (BULLET TRACKING & SILENT AIM)
 -- ============================================================================
-TrackingTab.CanvasSize = UDim2.new(0, 0, 0, 785)
+TrackingTab.CanvasSize = UDim2.new(0, 0, 0, 840)
 
 local TrackingSectionTitle = Instance.new("TextLabel")
 TrackingSectionTitle.Size = UDim2.new(1, -28, 0, 18)
@@ -1527,6 +1818,38 @@ CreateDropdown(TrackingTab, "WALL CHECK (CEK TEMBOK):", 664, {
 end)
 
 CreateGeneralSlider(TrackingTab, "DELAY TEMBAKAN (COOLDOWN):", 718, "AutoShootDelayMs", 50, 500, "ms", Color3.fromRGB(255, 140, 60))
+
+-- Sub-Section: EXTERNAL MOBILE CONTROLS (JOYSTICK & TOMBOL LONCAT)
+local ExtControlsSectionTitle = Instance.new("TextLabel")
+ExtControlsSectionTitle.Size = UDim2.new(1, -28, 0, 18)
+ExtControlsSectionTitle.Position = UDim2.new(0, 14, 0, 770)
+ExtControlsSectionTitle.BackgroundTransparency = 1
+ExtControlsSectionTitle.Text = "EXTERNAL MOBILE CONTROLS (HUD)"
+ExtControlsSectionTitle.TextColor3 = Color3.fromRGB(120, 130, 150)
+ExtControlsSectionTitle.Font = Enum.Font.GothamBold
+ExtControlsSectionTitle.TextSize = 10
+ExtControlsSectionTitle.TextXAlignment = Enum.TextXAlignment.Left
+ExtControlsSectionTitle.Parent = TrackingTab
+
+ExternalControlsToggleBtn = Instance.new("TextButton")
+ExternalControlsToggleBtn.Size = UDim2.new(1, -28, 0, 30)
+ExternalControlsToggleBtn.Position = UDim2.new(0, 14, 0, 792)
+ExternalControlsToggleBtn.BackgroundColor3 = Color3.fromRGB(0, 180, 120)
+ExternalControlsToggleBtn.Text = "EXTERNAL CONTROLS: ON"
+ExternalControlsToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+ExternalControlsToggleBtn.Font = Enum.Font.GothamBold
+ExternalControlsToggleBtn.TextSize = 11
+ExternalControlsToggleBtn.BorderSizePixel = 0
+ExternalControlsToggleBtn.Parent = TrackingTab
+
+local ExtControlsCorner = Instance.new("UICorner")
+ExtControlsCorner.CornerRadius = UDim.new(0, 6)
+ExtControlsCorner.Parent = ExternalControlsToggleBtn
+
+ExternalControlsToggleStroke = Instance.new("UIStroke")
+ExternalControlsToggleStroke.Thickness = 1
+ExternalControlsToggleStroke.Color = Color3.fromRGB(0, 220, 150)
+ExternalControlsToggleStroke.Parent = ExternalControlsToggleBtn
 
 -- ============================================================================
 -- 4. ISI TAB SETTINGS (PANDUAN KONTROL & PENGATURAN UMUM)
@@ -2627,7 +2950,7 @@ function TriggerShoot()
         if isTouchDevice then
             -- Khusus Mobile / Delta Android:
             -- tool:Activate() di atas sudah menembakkan senjata tool Roblox.
-            -- Gunakan VirtualInputManager tanpa CaptureController agar tombol loncat & gerak TIDAK hilang!
+            -- Gunakan VirtualInputManager tanpa CaptureController
             local vim = nil
             pcall(function() vim = game:GetService("VirtualInputManager") end)
             if vim then
@@ -2639,6 +2962,22 @@ function TriggerShoot()
                     end)
                 end)
             end
+
+            -- Pastikan joystick & jump button external selalu aktif di layar pemain
+            pcall(function()
+                if ExternalControlsGui and not ExternalControlsGui.Enabled and Config.ExternalControlsEnabled then
+                    ExternalControlsGui.Enabled = true
+                end
+                local pGui = LocalPlayer:FindFirstChildOfClass("PlayerGui") or (LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui"))
+                if pGui then
+                    local touchGui = pGui:FindFirstChild("TouchGui")
+                    if touchGui then
+                        touchGui.Enabled = true
+                        local tFrame = touchGui:FindFirstChild("TouchControlFrame")
+                        if tFrame then tFrame.Visible = true end
+                    end
+                end
+            end)
         else
             -- Di PC
             if typeof(mouse1click) == "function" then
@@ -2667,6 +3006,20 @@ function ToggleAutoShoot()
     pcall(function()
         Config.AutoShootEnabled = not Config.AutoShootEnabled
         _G.FeathCombatConfig = Config
+        if Config.AutoShootEnabled and Config.ExternalControlsEnabled and ExternalControlsGui then
+            ExternalControlsGui.Enabled = true
+        end
+        UpdateUI()
+    end)
+end
+
+function ToggleExternalControls()
+    pcall(function()
+        Config.ExternalControlsEnabled = not Config.ExternalControlsEnabled
+        _G.FeathCombatConfig = Config
+        if ExternalControlsGui then
+            ExternalControlsGui.Enabled = Config.ExternalControlsEnabled
+        end
         UpdateUI()
     end)
 end
@@ -2782,6 +3135,21 @@ local function UpdateUI()
             AutoShootToggleBtn.BackgroundColor3 = Color3.fromRGB(0, 180, 120)
             AutoShootToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
             AutoShootToggleStroke.Color = Color3.fromRGB(0, 220, 150)
+        end
+
+        -- 5. Update Tab Tracking UI (External Mobile Controls)
+        if ExternalControlsToggleBtn and ExternalControlsToggleStroke then
+            if not Config.ExternalControlsEnabled then
+                ExternalControlsToggleBtn.Text = "EXTERNAL CONTROLS: OFF"
+                ExternalControlsToggleBtn.BackgroundColor3 = Color3.fromRGB(35, 40, 52)
+                ExternalControlsToggleBtn.TextColor3 = Color3.fromRGB(220, 225, 235)
+                ExternalControlsToggleStroke.Color = Color3.fromRGB(50, 58, 76)
+            else
+                ExternalControlsToggleBtn.Text = "EXTERNAL CONTROLS: ON"
+                ExternalControlsToggleBtn.BackgroundColor3 = Color3.fromRGB(0, 180, 120)
+                ExternalControlsToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+                ExternalControlsToggleStroke.Color = Color3.fromRGB(0, 220, 150)
+            end
         end
     end)
 end
@@ -3477,6 +3845,12 @@ end)
 AutoShootToggleBtn.MouseButton1Click:Connect(function()
     pcall(ToggleAutoShoot)
 end)
+
+if ExternalControlsToggleBtn then
+    ExternalControlsToggleBtn.MouseButton1Click:Connect(function()
+        pcall(ToggleExternalControls)
+    end)
+end
 
 -- Keyboard Event
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
