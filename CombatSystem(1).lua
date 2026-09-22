@@ -173,7 +173,7 @@ local ScreenGui
 local FOVCircle, FOVStroke
 local CollapsedBar, MiniKotak, MainFrame, Sidebar
 local DotIndicator, StatusVal
-local activeDropdownList, activeDropdownArrow
+local activeDropdownList, activeDropdownArrow, activeDropdownCloser
 local TPScanBtn, TPDropdownBtn, TPArrow, TPListFrame
 local TPButton, FlyButton, TPStatusLabel
 local TrackingStatusLabel, TrackingTargetLabel, TrackingToggleButton
@@ -1114,6 +1114,10 @@ end
 -- REUSABLE COMPONENT BUILDERS (ACCORDION DRAWER, TOGGLE, SLIDER, DROPDOWN, ETC.)
 -- ============================================================================
 CloseAllDropdowns = function()
+    if activeDropdownCloser then
+        pcall(activeDropdownCloser)
+        activeDropdownCloser = nil
+    end
     if activeDropdownList then
         activeDropdownList.Visible = false
         if activeDropdownArrow then activeDropdownArrow.Text = "▼" end
@@ -1269,6 +1273,7 @@ local function CreateDrawer(parent, icon, title, badgeText, optionsCountText, de
     end)
 
     header.MouseButton1Click:Connect(function()
+        if CloseAllDropdowns then CloseAllDropdowns() end
         isOpen = not isOpen
         updateHeight()
     end)
@@ -1464,13 +1469,19 @@ local function CreateDropdown(parent, labelText, options, defaultVal, callback)
     frame.Name = "Dropdown_" .. labelText
     frame.Size = UDim2.new(1, 0, 0, 36)
     frame.BackgroundColor3 = THEME.Panel
-    frame.ClipsDescendants = false
+    frame.ClipsDescendants = true
     frame.Parent = parent
     createCorner(frame, UDim.new(0, 6))
-    createStroke(frame, THEME.Stroke, 1)
+    local frameStroke = createStroke(frame, THEME.Stroke, 1)
+
+    local headerRow = Instance.new("Frame")
+    headerRow.Name = "HeaderRow"
+    headerRow.Size = UDim2.new(1, 0, 0, 36)
+    headerRow.BackgroundTransparency = 1
+    headerRow.Parent = frame
 
     local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(0.48, 0, 1, 0)
+    label.Size = UDim2.new(0.46, 0, 1, 0)
     label.Position = UDim2.new(0, 10, 0, 0)
     label.BackgroundTransparency = 1
     label.Font = Enum.Font.GothamMedium
@@ -1478,94 +1489,148 @@ local function CreateDropdown(parent, labelText, options, defaultVal, callback)
     label.TextColor3 = THEME.TextPrimary
     label.TextSize = 10
     label.TextXAlignment = Enum.TextXAlignment.Left
-    label.Parent = frame
+    label.TextTruncate = Enum.TextTruncate.AtEnd
+    label.Parent = headerRow
 
     local selectorBtn = Instance.new("TextButton")
-    selectorBtn.Size = UDim2.new(0.5, -8, 0, 24)
-    selectorBtn.Position = UDim2.new(0.5, 0, 0.5, -12)
+    selectorBtn.Size = UDim2.new(0.52, -8, 0, 24)
+    selectorBtn.Position = UDim2.new(0.48, 0, 0.5, -12)
     selectorBtn.BackgroundColor3 = THEME.Background
-    selectorBtn.Font = Enum.Font.Gotham
-    selectorBtn.Text = tostring(selectedName) .. " ▾"
+    selectorBtn.Font = Enum.Font.GothamMedium
+    selectorBtn.Text = tostring(selectedName) .. "  ▾"
     selectorBtn.TextColor3 = THEME.Accent
     selectorBtn.TextSize = 9
+    selectorBtn.TextTruncate = Enum.TextTruncate.AtEnd
     selectorBtn.AutoButtonColor = false
-    selectorBtn.ZIndex = 25
-    selectorBtn.Parent = frame
+    selectorBtn.Parent = headerRow
     createCorner(selectorBtn, UDim.new(0, 4))
-    createStroke(selectorBtn, THEME.Stroke, 1)
+    local selectorStroke = createStroke(selectorBtn, THEME.Stroke, 1)
+
+    local optCount = #options
+    local optItemHeight = 24
+    local optSpacing = 2
+    local totalOptionsHeight = optCount * (optItemHeight + optSpacing) + 6
 
     local optionList = Instance.new("Frame")
     optionList.Name = "OptionList"
-    optionList.Size = UDim2.new(1, 0, 0, #options * 24 + 4)
-    optionList.Position = UDim2.new(0, 0, 1, 2)
+    optionList.Size = UDim2.new(1, -16, 0, totalOptionsHeight)
+    optionList.Position = UDim2.new(0, 8, 0, 38)
     optionList.BackgroundColor3 = THEME.Sidebar
     optionList.Visible = false
-    optionList.ZIndex = 30
-    optionList.Parent = selectorBtn
+    optionList.Parent = frame
     createCorner(optionList, UDim.new(0, 6))
     createStroke(optionList, THEME.StrokeAccent, 1)
 
     local listLayout = Instance.new("UIListLayout")
-    listLayout.Padding = UDim.new(0, 2)
+    listLayout.Padding = UDim.new(0, optSpacing)
+    listLayout.SortOrder = Enum.SortOrder.LayoutOrder
     listLayout.Parent = optionList
 
     local listPadding = Instance.new("UIPadding")
-    listPadding.PaddingTop = UDim.new(0, 2)
-    listPadding.PaddingBottom = UDim.new(0, 2)
+    listPadding.PaddingTop = UDim.new(0, 3)
+    listPadding.PaddingBottom = UDim.new(0, 3)
     listPadding.PaddingLeft = UDim.new(0, 4)
     listPadding.PaddingRight = UDim.new(0, 4)
     listPadding.Parent = optionList
 
-    for _, opt in ipairs(options) do
+    local optButtons = {}
+
+    local function updateButtonsVisual()
+        for _, item in ipairs(optButtons) do
+            local isSel = (item.Name == selectedName)
+            if isSel then
+                item.Btn.BackgroundColor3 = Color3.fromRGB(36, 32, 54)
+                item.Btn.TextColor3 = THEME.Accent
+                item.Btn.Text = "  ✓  " .. item.Name
+                item.Btn.Font = Enum.Font.GothamBold
+            else
+                item.Btn.BackgroundColor3 = THEME.Sidebar
+                item.Btn.TextColor3 = THEME.TextSecondary
+                item.Btn.Text = "      " .. item.Name
+                item.Btn.Font = Enum.Font.Gotham
+            end
+        end
+    end
+
+    local function closeThisDropdown()
+        if not isOpen then return end
+        isOpen = false
+        optionList.Visible = false
+        selectorBtn.Text = tostring(selectedName) .. "  ▾"
+        selectorStroke.Color = THEME.Stroke
+        frameStroke.Color = THEME.Stroke
+        frame.Size = UDim2.new(1, 0, 0, 36)
+        if activeDropdownCloser == closeThisDropdown then
+            activeDropdownCloser = nil
+        end
+    end
+
+    local function openThisDropdown()
+        CloseAllDropdowns()
+        isOpen = true
+        activeDropdownCloser = closeThisDropdown
+        selectorBtn.Text = tostring(selectedName) .. "  ▲"
+        selectorStroke.Color = THEME.Accent
+        frameStroke.Color = THEME.StrokeAccent
+        optionList.Visible = true
+        frame.Size = UDim2.new(1, 0, 0, 36 + totalOptionsHeight + 6)
+    end
+
+    local function toggleDropdown()
+        if isOpen then
+            closeThisDropdown()
+        else
+            openThisDropdown()
+        end
+    end
+
+    for idx, opt in ipairs(options) do
         local optName = type(opt) == "table" and opt.Name or tostring(opt)
         local optVal = type(opt) == "table" and (opt.Value ~= nil and opt.Value or opt.Name) or opt
 
         local optBtn = Instance.new("TextButton")
-        optBtn.Size = UDim2.new(1, 0, 0, 22)
+        optBtn.Name = "Opt_" .. optName
+        optBtn.Size = UDim2.new(1, 0, 0, optItemHeight)
         optBtn.BackgroundColor3 = THEME.Sidebar
         optBtn.Font = Enum.Font.Gotham
-        optBtn.Text = optName
+        optBtn.Text = "      " .. optName
         optBtn.TextColor3 = THEME.TextSecondary
         optBtn.TextSize = 9
-        optBtn.ZIndex = 31
+        optBtn.TextXAlignment = Enum.TextXAlignment.Left
+        optBtn.TextTruncate = Enum.TextTruncate.AtEnd
         optBtn.AutoButtonColor = false
+        optBtn.LayoutOrder = idx
         optBtn.Parent = optionList
         createCorner(optBtn, UDim.new(0, 4))
 
         optBtn.MouseEnter:Connect(function()
-            optBtn.BackgroundColor3 = THEME.Accent
-            optBtn.TextColor3 = THEME.TextPrimary
+            if optName ~= selectedName then
+                optBtn.BackgroundColor3 = THEME.PanelHover
+                optBtn.TextColor3 = THEME.TextPrimary
+            end
         end)
         optBtn.MouseLeave:Connect(function()
-            optBtn.BackgroundColor3 = THEME.Sidebar
-            optBtn.TextColor3 = THEME.TextSecondary
+            if optName ~= selectedName then
+                optBtn.BackgroundColor3 = THEME.Sidebar
+                optBtn.TextColor3 = THEME.TextSecondary
+            end
         end)
 
         optBtn.MouseButton1Click:Connect(function()
             selectedName = optName
-            selectorBtn.Text = optName .. " ▾"
-            optionList.Visible = false
-            isOpen = false
+            updateButtonsVisual()
+            closeThisDropdown()
             if callback then
                 callback(optVal)
             end
         end)
+
+        table.insert(optButtons, { Name = optName, Btn = optBtn })
     end
 
-    selectorBtn.MouseButton1Click:Connect(function()
-        if isOpen then
-            optionList.Visible = false
-            isOpen = false
-            if activeDropdownList == optionList then
-                activeDropdownList = nil
-            end
-        else
-            CloseAllDropdowns()
-            optionList.Visible = true
-            isOpen = true
-            activeDropdownList = optionList
-        end
-    end)
+    updateButtonsVisual()
+
+    selectorBtn.MouseButton1Click:Connect(toggleDropdown)
 
     return frame
 end
