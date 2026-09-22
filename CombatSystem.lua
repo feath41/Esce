@@ -38,7 +38,7 @@ local Config = {
     TargetPartChoice = "Head",     -- "Head" atau "Torso"
     LockMode = "FOV",              -- "FOV" (Hanya dalam Lingkaran FOV), "Distance" (Jarak 3D), "Cursor" (2D)
     TargetType = "All",            -- "All" (Player + Bot), "NPC" (Hanya Bot), "Player" (Hanya Player)
-    TeamCheck = true,              -- true = hanya musuh, false = semua
+    TeamCheck = false,             -- false = semua pemain (aman di game FFA/PVP), true = hanya beda tim
     TargetSwitchMode = "Dynamic",   -- "Dynamic" = musuh terdekat, "LowestHP" = darah terendah, "Persistent" = sampai mati
     SwitchDistanceMargin = 3,      -- Margin jarak (studs)
     
@@ -1791,8 +1791,8 @@ CreateDropdown(PlayerTab, "TARGET ENTITY FILTER:", 288, {
 end)
 
 CreateDropdown(PlayerTab, "TEAM FILTER (TEAM CHECK):", 340, {
-    { Name = "Hanya Musuh (Beda Team) [Aktif]", Value = true },
-    { Name = "Bebas / Semua Team [Nonaktif]", Value = false }
+    { Name = "Bebas / Kunci Semua Pemain [Nonaktif]", Value = false },
+    { Name = "Hanya Musuh (Beda Team) [Aktif]", Value = true }
 }, Config.TeamCheck, 4, function(val)
     Config.TeamCheck = val
     if AutoLockEnabled then
@@ -1957,9 +1957,13 @@ function GetTargetPart(char)
 end
 
 local function IsPlayerCharacter(char)
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p.Character == char then
-            return true, p
+    if not char then return false, nil end
+    local p = Players:GetPlayerFromCharacter(char)
+    if p then return true, p end
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player.Character == char or (char.Parent and player.Character == char.Parent) then
+            return true, player
         end
     end
     return false, nil
@@ -1968,12 +1972,14 @@ end
 local function IsSameTeam(player)
     if not player or player == LocalPlayer then return true end
     
-    if LocalPlayer.Team ~= nil and player.Team ~= nil then
-        return LocalPlayer.Team == player.Team
+    -- Jika pemain Neutral (mode FFA / bebas), mereka bukan kawan satu tim
+    if LocalPlayer.Neutral or player.Neutral then
+        return false
     end
     
-    if LocalPlayer.TeamColor ~= nil and player.TeamColor ~= nil then
-        return LocalPlayer.TeamColor == player.TeamColor
+    -- Hanya anggap satu tim jika ada objek Team yang valid dan sama persis
+    if LocalPlayer.Team ~= nil and player.Team ~= nil then
+        return LocalPlayer.Team == player.Team
     end
     
     return false
@@ -2059,10 +2065,12 @@ local function GetEnemiesSortedByDistance()
                     ConsiderModel(child)
                 elseif child:IsA("Folder") or child:IsA("Model") then
                     local lowerName = string.lower(child.Name)
-                    if string.find(lowerName, "npc") or string.find(lowerName, "enemi") 
+                    if string.find(lowerName, "player") or string.find(lowerName, "char")
+                       or string.find(lowerName, "npc") or string.find(lowerName, "enemi") 
                        or string.find(lowerName, "mob") or string.find(lowerName, "bot") 
                        or string.find(lowerName, "monster") or string.find(lowerName, "zombie") 
-                       or string.find(lowerName, "entity") or string.find(lowerName, "creature") then
+                       or string.find(lowerName, "entity") or string.find(lowerName, "creature")
+                       or string.find(lowerName, "living") or string.find(lowerName, "spawn") then
                         for _, sub in ipairs(child:GetChildren()) do
                             if sub:IsA("Model") then
                                 ConsiderModel(sub)
@@ -2957,11 +2965,13 @@ local function UpdateVisualHighlights()
                 EvaluateModel(child)
             elseif child:IsA("Folder") or child:IsA("Model") then
                 local lowerName = string.lower(child.Name)
-                if string.find(lowerName, "npc") or string.find(lowerName, "enemi") 
+                if string.find(lowerName, "player") or string.find(lowerName, "char")
+                   or string.find(lowerName, "npc") or string.find(lowerName, "enemi") 
                    or string.find(lowerName, "mob") or string.find(lowerName, "bot") 
                    or string.find(lowerName, "monster") or string.find(lowerName, "zombie") 
                    or string.find(lowerName, "entity") or string.find(lowerName, "dummy")
-                   or string.find(lowerName, "creature") or string.find(lowerName, "spawn") then
+                   or string.find(lowerName, "creature") or string.find(lowerName, "living")
+                   or string.find(lowerName, "spawn") then
                     for _, sub in ipairs(child:GetChildren()) do
                         if sub:IsA("Model") then
                             EvaluateModel(sub)
@@ -3121,11 +3131,13 @@ local function ScanTargetsForTP()
             Evaluate(child)
         elseif child:IsA("Folder") or child:IsA("Model") then
             local lowerName = string.lower(child.Name)
-            if string.find(lowerName, "npc") or string.find(lowerName, "enemi") 
+            if string.find(lowerName, "player") or string.find(lowerName, "char")
+               or string.find(lowerName, "npc") or string.find(lowerName, "enemi") 
                or string.find(lowerName, "mob") or string.find(lowerName, "bot") 
                or string.find(lowerName, "monster") or string.find(lowerName, "zombie") 
                or string.find(lowerName, "entity") or string.find(lowerName, "dummy")
-               or string.find(lowerName, "creature") or string.find(lowerName, "spawn") then
+               or string.find(lowerName, "creature") or string.find(lowerName, "living")
+               or string.find(lowerName, "spawn") then
                 for _, sub in ipairs(child:GetChildren()) do
                     if sub:IsA("Model") then
                         Evaluate(sub)
