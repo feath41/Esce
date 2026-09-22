@@ -166,12 +166,14 @@ ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "CombatTargetGui"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.IgnoreGuiInset = true
 pcall(function() ScreenGui.Parent = SafeParent end)
 
--- Lingkaran FOV (Field of View) untuk Bullet Tracking
+-- Lingkaran FOV (Field of View) untuk Bullet Tracking (Terkunci di Tengah Layar / Crosshair)
 FOVCircle = Instance.new("Frame")
 FOVCircle.Name = "CombatBulletFOVCircle"
 FOVCircle.AnchorPoint = Vector2.new(0.5, 0.5)
+FOVCircle.Position = UDim2.new(0.5, 0, 0.5, 0)
 FOVCircle.BackgroundTransparency = 1
 FOVCircle.Visible = false
 FOVCircle.ZIndex = 40
@@ -2099,13 +2101,13 @@ function FindBestTarget()
         elseif Config.LockMode == "Distance" then
             best = enemies[1]
         else
-            local mousePos = UserInputService:GetMouseLocation()
+            local centerPos = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
             local shortestScreenDist = math.huge
 
             for _, entry in ipairs(enemies) do
                 local screenPos, onScreen = Camera:WorldToViewportPoint(entry.Part.Position)
                 if onScreen then
-                    local screenDist = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+                    local screenDist = (Vector2.new(screenPos.X, screenPos.Y) - centerPos).Magnitude
                     if screenDist < shortestScreenDist then
                         shortestScreenDist = screenDist
                         best = entry
@@ -2190,8 +2192,8 @@ function GetBulletTarget()
             if part then
                 if cfg.BulletUseFOV then
                     local screenPos, onScreen = Camera:WorldToViewportPoint(part.Position)
-                    local mousePos = UserInputService:GetMouseLocation()
-                    local dist2D = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+                    local centerPos = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+                    local dist2D = (Vector2.new(screenPos.X, screenPos.Y) - centerPos).Magnitude
                     if onScreen and dist2D <= cfg.BulletFOVRadius then
                         targetPart = part
                         targetChar = CurrentTargetChar
@@ -2207,7 +2209,7 @@ function GetBulletTarget()
     -- 2. Fallback / Mode MouseFOV & Closest
     if not targetPart then
         local enemies = GetEnemiesSortedByDistance()
-        local mousePos = UserInputService:GetMouseLocation()
+        local centerPos = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
         local bestCandidate = nil
         local bestMetric = math.huge
 
@@ -2223,7 +2225,7 @@ function GetBulletTarget()
                 else
                     local screenPos, onScreen = Camera:WorldToViewportPoint(part.Position)
                     if onScreen then
-                        local screenDist = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+                        local screenDist = (Vector2.new(screenPos.X, screenPos.Y) - centerPos).Magnitude
                         if (not cfg.BulletUseFOV or screenDist <= cfg.BulletFOVRadius) and screenDist < bestMetric then
                             bestMetric = screenDist
                             bestCandidate = { Model = model, Part = part }
@@ -2513,7 +2515,7 @@ function GetAutoShootTarget()
     -- 2. Mode FOV / All: Cek musuh di dalam lingkaran FOV
     if Config.AutoShootMode == "All" or Config.AutoShootMode == "FOV" then
         local enemies = GetEnemiesSortedByDistance()
-        local mousePos = UserInputService:GetMouseLocation()
+        local centerPos = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
 
         for _, entry in ipairs(enemies) do
             local model = entry.Character
@@ -2529,7 +2531,7 @@ function GetAutoShootTarget()
             if part and part:IsA("BasePart") then
                 local screenPos, onScreen = Camera:WorldToViewportPoint(part.Position)
                 if onScreen then
-                    local screenDist = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+                    local screenDist = (Vector2.new(screenPos.X, screenPos.Y) - centerPos).Magnitude
                     if screenDist <= Config.BulletFOVRadius then
                         if not Config.AutoShootWallCheck or IsTargetVisible(part) then
                             return part
@@ -3397,10 +3399,9 @@ RunService.RenderStepped:Connect(function(dt)
         -- Update Tampilan Lingkaran FOV (Field of View)
         local shouldShowFOV = (Config.BulletTrackingEnabled or Config.AutoShootEnabled) and Config.BulletShowFOVCircle and Config.BulletUseFOV
         if shouldShowFOV then
-            local mousePos = UserInputService:GetMouseLocation()
             local diameter = Config.BulletFOVRadius * 2
             FOVCircle.Size = UDim2.new(0, diameter, 0, diameter)
-            FOVCircle.Position = UDim2.new(0, mousePos.X, 0, mousePos.Y)
+            FOVCircle.Position = UDim2.new(0.5, 0, 0.5, 0)
 
             local shootTarget = Config.AutoShootEnabled and GetAutoShootTarget()
             local tPart, _ = GetBulletTarget()
