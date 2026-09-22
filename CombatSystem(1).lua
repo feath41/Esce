@@ -106,26 +106,39 @@ local CurrentTargetIsNPC = false
 _G.FeathCombatConfig = Config
 
 -- ============================================================================
--- PENGATURAN PARENT GUI AMAN
+-- PENGATURAN PARENT GUI AMAN (KOMPATIBILITAS DELTA, ARCEUS X, CODEX, & PC)
 -- ============================================================================
-local function GetSafeGuiParent()
+local function GetSafeGuiParent(guiInstance)
     local targetParent = nil
+    -- 1. Prioritas Utama untuk Delta Mobile, Arceus X, & Codex: gethui()
     pcall(function()
         if typeof(gethui) == "function" then
             targetParent = gethui()
-        elseif CoreGui then
-            targetParent = CoreGui
         end
     end)
+    -- 2. Proteksi syn.protect_gui jika ada
+    if guiInstance then
+        pcall(function()
+            if typeof(syn) == "table" and typeof(syn.protect_gui) == "function" then
+                syn.protect_gui(guiInstance)
+            end
+        end)
+    end
+    -- 3. Fallback ke CoreGui
+    if not targetParent then
+        pcall(function()
+            if CoreGui then
+                targetParent = CoreGui
+            end
+        end)
+    end
+    -- 4. Fallback aman ke PlayerGui jika CoreGui dibatasi
     if not targetParent then
         pcall(function()
             targetParent = LocalPlayer:WaitForChild("PlayerGui", 3) or (LocalPlayer and LocalPlayer.PlayerGui)
         end)
     end
-    if not targetParent then
-        targetParent = CoreGui or game:GetService("CoreGui")
-    end
-    return targetParent
+    return targetParent or CoreGui
 end
 
 local SafeParent = GetSafeGuiParent()
@@ -2725,29 +2738,29 @@ local function MonitorProjectile(obj)
         local connection
         local startTime = tick()
         connection = RunService.Heartbeat:Connect(function(dt)
-            if not obj or not obj.Parent or (tick() - startTime > 3.5) then
-                if connection then connection:Disconnect() connection = nil end
-                return
-            end
-
-            local tPart, tPos = fn and fn()
-            if not tPart or not tPos then
-                if connection then connection:Disconnect() connection = nil end
-                return
-            end
-
-            local diff = tPos - obj.Position
-            local dist = diff.Magnitude
-            if dist < 2.5 then
-                if connection then connection:Disconnect() connection = nil end
-                return
-            end
-
-            local currentVel = obj.AssemblyLinearVelocity
-            local currentSpeed = currentVel.Magnitude
-            if currentSpeed < 30 then currentSpeed = 250 end
-
             pcall(function()
+                if not obj or not obj.Parent or (tick() - startTime > 3.5) then
+                    if connection then connection:Disconnect() connection = nil end
+                    return
+                end
+
+                local tPart, tPos = fn and fn()
+                if not tPart or not tPos then
+                    if connection then connection:Disconnect() connection = nil end
+                    return
+                end
+
+                local diff = tPos - obj.Position
+                local dist = diff.Magnitude
+                if dist < 2.5 then
+                    if connection then connection:Disconnect() connection = nil end
+                    return
+                end
+
+                local currentVel = obj.AssemblyLinearVelocity
+                local currentSpeed = currentVel.Magnitude
+                if currentSpeed < 30 then currentSpeed = 250 end
+
                 obj.AssemblyLinearVelocity = diff.Unit * currentSpeed
                 obj.CFrame = CFrame.lookAt(obj.Position, tPos)
             end)
@@ -3654,59 +3667,61 @@ local function ToggleFly()
 
     -- Aktifkan Noclip agar karakter tidak nyangkut dinding/bangunan
     FlyNoclipConn = RunService.Stepped:Connect(function()
-        local c = LocalPlayer.Character
-        if c then
-            for _, p in ipairs(c:GetDescendants()) do
-                if p:IsA("BasePart") and p.CanCollide then
-                    p.CanCollide = false
+        pcall(function()
+            local c = LocalPlayer.Character
+            if c then
+                for _, p in ipairs(c:GetDescendants()) do
+                    if p:IsA("BasePart") and p.CanCollide then
+                        p.CanCollide = false
+                    end
                 end
             end
-        end
+        end)
     end)
     _G.CombatFlyNoclip = FlyNoclipConn
 
     FlyHeartbeatConn = RunService.Heartbeat:Connect(function(dt)
-        local myChar = LocalPlayer.Character
-        if not myChar or not myChar.Parent then
-            StopFly()
-            return
-        end
-        local myRoot = GetTargetPart(myChar)
-        if not myRoot then
-            StopFly()
-            return
-        end
-
-        if not targetModel or not targetModel.Parent or not IsValidEnemy(targetModel) then
-            StopFly("Target hilang atau telah mati!", Color3.fromRGB(255, 85, 85))
-            return
-        end
-
-        local tRoot = GetTargetPart(targetModel)
-        if not tRoot then
-            StopFly()
-            return
-        end
-
-        local targetPos = tRoot.Position + Vector3.new(0, 2, 0)
-        local diff = targetPos - myRoot.Position
-        local dist = diff.Magnitude
-
-        if dist <= 4.5 then
-            StopFly("Sampai di target: " .. targetName, Color3.fromRGB(50, 225, 120))
-            return
-        end
-
-        local step = math.min(dist, Config.FlySpeed * dt)
-        local nextPos = myRoot.Position + (diff.Unit * step)
-
         pcall(function()
+            local myChar = LocalPlayer.Character
+            if not myChar or not myChar.Parent then
+                StopFly()
+                return
+            end
+            local myRoot = GetTargetPart(myChar)
+            if not myRoot then
+                StopFly()
+                return
+            end
+
+            if not targetModel or not targetModel.Parent or not IsValidEnemy(targetModel) then
+                StopFly("Target hilang atau telah mati!", Color3.fromRGB(255, 85, 85))
+                return
+            end
+
+            local tRoot = GetTargetPart(targetModel)
+            if not tRoot then
+                StopFly()
+                return
+            end
+
+            local targetPos = tRoot.Position + Vector3.new(0, 2, 0)
+            local diff = targetPos - myRoot.Position
+            local dist = diff.Magnitude
+
+            if dist <= 4.5 then
+                StopFly("Sampai di target: " .. targetName, Color3.fromRGB(50, 225, 120))
+                return
+            end
+
+            local step = math.min(dist, Config.FlySpeed * dt)
+            local nextPos = myRoot.Position + (diff.Unit * step)
+
             myRoot.AssemblyLinearVelocity = Vector3.zero
             myRoot.AssemblyAngularVelocity = Vector3.zero
             myRoot.CFrame = CFrame.lookAt(nextPos, targetPos)
-        end)
 
-        TPStatusLabel.Text = string.format("Terbang ke [%s] (%.0f studs | Speed: %d)", targetName, dist, Config.FlySpeed)
+            TPStatusLabel.Text = string.format("Terbang ke [%s] (%.0f studs | Speed: %d)", targetName, dist, Config.FlySpeed)
+        end)
     end)
     _G.CombatFlyHeartbeat = FlyHeartbeatConn
 end
@@ -3721,21 +3736,23 @@ TPScanBtn.MouseButton1Click:Connect(function()
 end)
 
 TPDropdownBtn.MouseButton1Click:Connect(function()
-    if TPListFrame.Visible then
-        TPListFrame.Visible = false
-        TPArrow.Text = "▼"
-        if activeDropdownList == TPListFrame then
-            activeDropdownList = nil
-            activeDropdownArrow = nil
+    pcall(function()
+        if TPListFrame.Visible then
+            TPListFrame.Visible = false
+            TPArrow.Text = "▼"
+            if activeDropdownList == TPListFrame then
+                activeDropdownList = nil
+                activeDropdownArrow = nil
+            end
+        else
+            CloseAllDropdowns()
+            PopulateTPDropdown()
+            TPListFrame.Visible = true
+            TPArrow.Text = "▲"
+            activeDropdownList = TPListFrame
+            activeDropdownArrow = TPArrow
         end
-    else
-        CloseAllDropdowns()
-        PopulateTPDropdown()
-        TPListFrame.Visible = true
-        TPArrow.Text = "▲"
-        activeDropdownList = TPListFrame
-        activeDropdownArrow = TPArrow
-    end
+    end)
 end)
 
 TPButton.MouseButton1Click:Connect(function()
