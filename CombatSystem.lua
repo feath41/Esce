@@ -169,6 +169,8 @@ local ExternalControlsToggleBtn, ExternalControlsToggleStroke
 local TargetNameLabel, DistanceLabel, HealthBarFill
 local ToggleButton, SwitchButton
 local MaxDistance = 150
+local MainTab, PlayerTab, TrackingTab, VisualTab, SettingsTab
+local CloseAllDropdowns
 
 -- ============================================================================
 -- EXTERNAL MOBILE CONTROLS (JOYSTICK & TOMBOL LONCAT MANDIRI)
@@ -452,8 +454,6 @@ pcall(function()
     end)
 end)
 
-do
-
 ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "CombatTargetGui"
 ScreenGui.ResetOnSpawn = false
@@ -481,6 +481,7 @@ FOVStroke.Color = Config.BulletFOVCircleColor
 FOVStroke.Transparency = 0.35
 FOVStroke.Parent = FOVCircle
 
+local function BuildCollapsedAndMini()
 -- 1. Collapsed Bar / Title Bar Only (Non-draggable, stays fixed at top)
 CollapsedBar = Instance.new("Frame")
 CollapsedBar.Name = "CollapsedBar"
@@ -653,7 +654,10 @@ UserInputService.InputChanged:Connect(function(input)
         )
     end
 end)
+end
+BuildCollapsedAndMini()
 
+local function BuildMainFrameAndSidebar()
 -- 3. Main Window Frame (520 x 360 px Standard Hub Layout)
 MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
@@ -854,6 +858,8 @@ StatusVal.Font = Enum.Font.GothamBold
 StatusVal.TextSize = 10
 StatusVal.TextXAlignment = Enum.TextXAlignment.Left
 StatusVal.Parent = StatusCard
+end
+BuildMainFrameAndSidebar()
 
 -- Content Area (Kanan)
 local ContentArea = Instance.new("Frame")
@@ -882,11 +888,11 @@ local function CreateTabFrame(name)
     return frame
 end
 
-local MainTab = CreateTabFrame("Main")
-local PlayerTab = CreateTabFrame("Player")
-local TrackingTab = CreateTabFrame("Tracking")
-local VisualTab = CreateTabFrame("Visual")
-local SettingsTab = CreateTabFrame("Settings")
+MainTab = CreateTabFrame("Main")
+PlayerTab = CreateTabFrame("Player")
+TrackingTab = CreateTabFrame("Tracking")
+VisualTab = CreateTabFrame("Visual")
+SettingsTab = CreateTabFrame("Settings")
 
 -- Sistem Tab Switching Navigasi
 local NavButtons = {}
@@ -1197,11 +1203,8 @@ local function CreateGeneralSlider(parent, titleText, yPos, configKey, minVal, m
 end
 
 -- ============================================================================
--- 1. ISI TAB MAIN (DEVELOPER PROFILE / CREATED BY FEATH)
--- ============================================================================
--- ============================================================================
+local function BuildMainTab()
 -- 1. ISI TAB MAIN (DEVELOPER PROFILE + TELEPORT & TERBANG)
--- ============================================================================
 MainTab.CanvasSize = UDim2.new(0, 0, 0, 335)
 
 local ProfileCard = Instance.new("Frame")
@@ -1528,10 +1531,12 @@ TPStatusLabel.TextSize = 10
 TPStatusLabel.TextWrapped = true
 TPStatusLabel.TextXAlignment = Enum.TextXAlignment.Left
 TPStatusLabel.Parent = TPStatusCard
+end
+BuildMainTab()
 
 -- ============================================================================
+local function BuildVisualTab()
 -- 2. ISI TAB VISUAL (ENTITY HIGHLIGHT SYSTEM)
--- ============================================================================
 VisualTab.CanvasSize = UDim2.new(0, 0, 0, 360)
 
 local VisualSectionTitle = Instance.new("TextLabel")
@@ -1638,10 +1643,12 @@ end
 CreateAxisSlider(VisualTab, "RADIUS X (KANAN - KIRI):", 182, "HighlightRadiusX", 20, 1500, Color3.fromRGB(255, 120, 80))
 CreateAxisSlider(VisualTab, "RADIUS Y (ATAS - BAWAH):", 236, "HighlightRadiusY", 20, 1000, Color3.fromRGB(80, 220, 150))
 CreateAxisSlider(VisualTab, "RADIUS Z (DEPAN - BELAKANG):", 290, "HighlightRadiusZ", 20, 1500, Color3.fromRGB(80, 190, 255))
+end
+BuildVisualTab()
 
 -- ============================================================================
+local function BuildTrackingTab()
 -- 3. ISI TAB TRACKING (BULLET TRACKING & SILENT AIM)
--- ============================================================================
 TrackingTab.CanvasSize = UDim2.new(0, 0, 0, 840)
 
 local TrackingSectionTitle = Instance.new("TextLabel")
@@ -1851,10 +1858,12 @@ ExternalControlsToggleStroke = Instance.new("UIStroke")
 ExternalControlsToggleStroke.Thickness = 1
 ExternalControlsToggleStroke.Color = Color3.fromRGB(0, 220, 150)
 ExternalControlsToggleStroke.Parent = ExternalControlsToggleBtn
+end
+BuildTrackingTab()
 
 -- ============================================================================
+local function BuildSettingsTab()
 -- 4. ISI TAB SETTINGS (PANDUAN KONTROL & PENGATURAN UMUM)
--- ============================================================================
 SettingsTab.CanvasSize = UDim2.new(0, 0, 0, 350)
 
 local SettingsTitle = Instance.new("TextLabel")
@@ -1959,11 +1968,12 @@ AboutDesc.TextSize = 9
 AboutDesc.TextWrapped = true
 AboutDesc.TextXAlignment = Enum.TextXAlignment.Left
 AboutDesc.Parent = AboutCard
+end
+BuildSettingsTab()
 
 -- ============================================================================
+local function BuildPlayerTab()
 -- 3. ISI TAB PLAYER (SELURUH FUNGSI COMBAT LAMA DITEMPATKAN DI SINI)
--- ============================================================================
-
 -- Section Title
 local SectionTitle = Instance.new("TextLabel")
 SectionTitle.Size = UDim2.new(1, -28, 0, 18)
@@ -2429,8 +2439,8 @@ UserInputService.InputEnded:Connect(function(input)
         end
     end)
 end)
-
 end
+BuildPlayerTab()
 
 -- ============================================================================
 -- HITBOX VISUAL SYSTEM (HIGHLIGHT + SELECTIONBOX)
