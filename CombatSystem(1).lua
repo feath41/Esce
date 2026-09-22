@@ -1908,7 +1908,7 @@ local function BuildPlayerTab()
     HealthBarFill.Parent = HealthBarBg
     createCorner(HealthBarFill, UDim.new(1, 0))
 
-    local aimBody, _, _ = CreateDrawer(PlayerTab, "🎯", "[Aim Lock Controls Utama]", "v2.6", "4 Options", true)
+    local aimBody, _, _ = CreateDrawer(PlayerTab, "🎯", "[Aim Lock Controls Utama]", "v2.6", "5 Options", true)
 
     local btnRow = Instance.new("Frame")
     btnRow.Size = UDim2.new(1, 0, 0, 32)
@@ -1943,6 +1943,23 @@ local function BuildPlayerTab()
         { Name = "Hanya Bot (NPCs)", Value = "NPC" }
     }, "Semua Target (Player + Bot)", function(val)
         Config.TargetType = val
+    end)
+
+    CreateDropdown(aimBody, "Cek Tim (Team Check):", {
+        { Name = "Aktif (Abaikan Kawan 1 Tim)", Value = true },
+        { Name = "Nonaktif (Kunci Semua Pemain)", Value = false }
+    }, Config.TeamCheck and "Aktif (Abaikan Kawan 1 Tim)" or "Nonaktif (Kunci Semua Pemain)", function(val)
+        Config.TeamCheck = val
+        if val and CurrentTargetChar then
+            local isPlayer, playerObj = IsPlayerCharacter(CurrentTargetChar)
+            if isPlayer and IsSameTeam(playerObj) then
+                CurrentTargetChar = nil
+                CurrentTargetPart = nil
+                SetTarget(FindBestTarget())
+            end
+        end
+        ClearUnlockedHighlights()
+        ShowToast(val and "Team Check: Aktif (Abaikan kawan) 🛡️" or "Team Check: Nonaktif (Semua pemain) ⚔️", 2)
     end)
 
     CreateDropdown(aimBody, "Bagian Tubuh Target:", {
@@ -2299,9 +2316,23 @@ local function IsSameTeam(player)
         return false
     end
     
-    -- Hanya anggap satu tim jika ada objek Team yang valid dan sama persis
+    -- 1. Cek objek Team resmi Roblox
     if LocalPlayer.Team ~= nil and player.Team ~= nil then
         return LocalPlayer.Team == player.Team
+    end
+
+    -- 2. Cek TeamColor jika game menggunakan BrickColor untuk tim
+    if LocalPlayer.TeamColor ~= nil and player.TeamColor ~= nil then
+        if LocalPlayer.TeamColor == player.TeamColor then
+            return true
+        end
+    end
+
+    -- 3. Cek Attribute "Team" jika game modern menggunakan Attributes
+    local myTeamAttr = LocalPlayer:GetAttribute("Team")
+    local targetTeamAttr = player:GetAttribute("Team")
+    if myTeamAttr ~= nil and targetTeamAttr ~= nil and myTeamAttr ~= "" then
+        return myTeamAttr == targetTeamAttr
     end
     
     return false
@@ -2314,7 +2345,19 @@ local function IsValidEnemy(char)
 
         local hum = char:FindFirstChildOfClass("Humanoid")
         local root = GetTargetPart(char)
-        return hum ~= nil and hum.Health > 0 and root ~= nil and root:IsA("BasePart")
+        if not (hum ~= nil and hum.Health > 0 and root ~= nil and root:IsA("BasePart")) then
+            return false
+        end
+
+        -- Team Check Filter
+        if Config.TeamCheck then
+            local isPlayer, playerObj = IsPlayerCharacter(char)
+            if isPlayer and IsSameTeam(playerObj) then
+                return false
+            end
+        end
+
+        return true
     end)
     return success and result == true
 end
@@ -3854,6 +3897,36 @@ if ExternalControlsToggleBtn then
         pcall(ToggleExternalControls)
     end)
 end
+
+-- Pantau Perubahan Tim Pemain (Otomatis Lepas Kawan Jika Berpindah Tim)
+pcall(function()
+    LocalPlayer:GetPropertyChangedSignal("Team"):Connect(function()
+        if Config.TeamCheck then
+            if CurrentTargetChar then
+                local isPlayer, playerObj = IsPlayerCharacter(CurrentTargetChar)
+                if isPlayer and IsSameTeam(playerObj) then
+                    CurrentTargetChar = nil
+                    CurrentTargetPart = nil
+                    SetTarget(FindBestTarget())
+                end
+            end
+            ClearUnlockedHighlights()
+        end
+    end)
+    LocalPlayer:GetPropertyChangedSignal("TeamColor"):Connect(function()
+        if Config.TeamCheck then
+            if CurrentTargetChar then
+                local isPlayer, playerObj = IsPlayerCharacter(CurrentTargetChar)
+                if isPlayer and IsSameTeam(playerObj) then
+                    CurrentTargetChar = nil
+                    CurrentTargetPart = nil
+                    SetTarget(FindBestTarget())
+                end
+            end
+            ClearUnlockedHighlights()
+        end
+    end)
+end)
 
 -- Keyboard Event
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
