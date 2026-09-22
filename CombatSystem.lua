@@ -560,6 +560,12 @@ local ExpCorner = Instance.new("UICorner")
 ExpCorner.CornerRadius = UDim.new(0, 6)
 ExpCorner.Parent = ExpandBtn
 
+ExpandBtn.MouseButton1Click:Connect(function()
+    CollapsedBar.Visible = false
+    MiniKotak.Visible = false
+    MainFrame.Visible = true
+end)
+
 -- Tombol Ubah ke Mode Kotak (Mini Draggable Box)
 local ToKotakBtn = Instance.new("TextButton")
 ToKotakBtn.Size = UDim2.new(0, 52, 0, 24)
@@ -576,6 +582,11 @@ local KotakBtnCorner = Instance.new("UICorner")
 KotakBtnCorner.CornerRadius = UDim.new(0, 6)
 KotakBtnCorner.Parent = ToKotakBtn
 
+ToKotakBtn.MouseButton1Click:Connect(function()
+    CollapsedBar.Visible = false
+    MiniKotak.Visible = true
+end)
+
 -- Tombol Close di Collapsed Bar
 local CloseColBtn = Instance.new("TextButton")
 CloseColBtn.Size = UDim2.new(0, 20, 0, 24)
@@ -587,6 +598,11 @@ CloseColBtn.Font = Enum.Font.GothamBold
 CloseColBtn.TextSize = 12
 CloseColBtn.ZIndex = 51
 CloseColBtn.Parent = CollapsedBar
+
+CloseColBtn.MouseButton1Click:Connect(function()
+    CollapsedBar.Visible = false
+    MiniKotak.Visible = true
+end)
 
 -- 2. Mini Kotak Widget (Mode Kotak yang BISA DI-DRAG)
 MiniKotak = Instance.new("Frame")
@@ -624,6 +640,13 @@ local isKotakDragging = false
 local isKotakMoved = false
 local kotakDragStart = nil
 local kotakStartPos = nil
+
+MiniKotakBtn.MouseButton1Click:Connect(function()
+    if not isKotakMoved then
+        MiniKotak.Visible = false
+        MainFrame.Visible = true
+    end
+end)
 
 MiniKotak.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
@@ -769,33 +792,10 @@ MinBtn.MouseButton1Click:Connect(function()
     CollapsedBar.Visible = true
 end)
 
-ExpandBtn.MouseButton1Click:Connect(function()
-    CollapsedBar.Visible = false
-    MiniKotak.Visible = false
-    MainFrame.Visible = true
-end)
-
-ToKotakBtn.MouseButton1Click:Connect(function()
-    CollapsedBar.Visible = false
-    MiniKotak.Visible = true
-end)
-
-CloseColBtn.MouseButton1Click:Connect(function()
-    CollapsedBar.Visible = false
-    MiniKotak.Visible = true
-end)
-
 CloseBtn.MouseButton1Click:Connect(function()
     MainFrame.Visible = false
     CollapsedBar.Visible = false
     MiniKotak.Visible = true
-end)
-
-MiniKotakBtn.MouseButton1Click:Connect(function()
-    if not isKotakMoved then
-        MiniKotak.Visible = false
-        MainFrame.Visible = true
-    end
 end)
 
 -- Sidebar Navigasi Kiri (130px)
