@@ -1,6 +1,7 @@
 -- CombatSystem.lua
 -- Modern Hub Interface (Based on Pithers Hub Design) + Full Combat Auto-Lock Features
--- Protected by pcall, Mobile/Delta & PC Ready
+-- 100% PURE ROBLOX ENGINE INSTANCES (NO EXECUTOR DRAWING LIBRARY NEEDED)
+-- Fully compatible with Delta Mobile (Android), Arceus X, Codex, Wave, & PC
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -8,8 +9,21 @@ local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
 local CoreGui = game:GetService("CoreGui")
 
-local LocalPlayer = Players.LocalPlayer or Players:GetPropertyChangedSignal("LocalPlayer"):Wait() or Players.LocalPlayer
-local Camera = workspace.CurrentCamera or workspace:WaitForChild("Camera")
+local LocalPlayer = Players.LocalPlayer
+if not LocalPlayer then
+    pcall(function()
+        LocalPlayer = Players:GetPropertyChangedSignal("LocalPlayer"):Wait()
+    end)
+    LocalPlayer = Players.LocalPlayer or LocalPlayer
+end
+
+local Camera = workspace.CurrentCamera
+if not Camera then
+    pcall(function()
+        Camera = workspace:WaitForChild("Camera", 3) or workspace.CurrentCamera
+    end)
+    Camera = workspace.CurrentCamera or Camera
+end
 
 -- ============================================================================
 -- KONFIGURASI SISTEM
@@ -98,7 +112,12 @@ local function GetSafeGuiParent()
         end
     end)
     if not targetParent then
-        targetParent = LocalPlayer:WaitForChild("PlayerGui")
+        pcall(function()
+            targetParent = LocalPlayer:WaitForChild("PlayerGui", 3) or (LocalPlayer and LocalPlayer.PlayerGui)
+        end)
+    end
+    if not targetParent then
+        targetParent = CoreGui or game:GetService("CoreGui")
     end
     return targetParent
 end
@@ -126,16 +145,31 @@ pcall(function()
 end)
 
 -- ============================================================================
--- PEMBUATAN UI MODERN (PITHERS HUB DESIGN)
+-- PEMBUATAN UI MODERN (PITHERS HUB DESIGN) - SCOPED REGISTERS
 -- ============================================================================
-local ScreenGui = Instance.new("ScreenGui")
+local ScreenGui
+local FOVCircle, FOVStroke
+local CollapsedBar, MiniKotak, MainFrame, Sidebar
+local DotIndicator, StatusVal
+local activeDropdownList, activeDropdownArrow
+local TPScanBtn, TPDropdownBtn, TPArrow, TPListFrame
+local TPButton, FlyButton, TPStatusLabel
+local TrackingStatusLabel, TrackingTargetLabel, TrackingToggleButton
+local AutoShootToggleBtn, AutoShootToggleStroke
+local TargetNameLabel, DistanceLabel, HealthBarFill
+local ToggleButton, SwitchButton
+local MaxDistance = 150
+
+do
+
+ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "CombatTargetGui"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 pcall(function() ScreenGui.Parent = SafeParent end)
 
 -- Lingkaran FOV (Field of View) untuk Bullet Tracking
-local FOVCircle = Instance.new("Frame")
+FOVCircle = Instance.new("Frame")
 FOVCircle.Name = "CombatBulletFOVCircle"
 FOVCircle.AnchorPoint = Vector2.new(0.5, 0.5)
 FOVCircle.BackgroundTransparency = 1
@@ -147,14 +181,14 @@ local FOVCorner = Instance.new("UICorner")
 FOVCorner.CornerRadius = UDim.new(1, 0)
 FOVCorner.Parent = FOVCircle
 
-local FOVStroke = Instance.new("UIStroke")
+FOVStroke = Instance.new("UIStroke")
 FOVStroke.Thickness = 1.5
 FOVStroke.Color = Config.BulletFOVCircleColor
 FOVStroke.Transparency = 0.35
 FOVStroke.Parent = FOVCircle
 
 -- 1. Collapsed Bar / Title Bar Only (Non-draggable, stays fixed at top)
-local CollapsedBar = Instance.new("Frame")
+CollapsedBar = Instance.new("Frame")
 CollapsedBar.Name = "CollapsedBar"
 CollapsedBar.Size = UDim2.new(0, 395, 0, 36)
 CollapsedBar.Position = UDim2.new(0.5, -197, 0.05, 0)
@@ -260,7 +294,7 @@ CloseColBtn.ZIndex = 51
 CloseColBtn.Parent = CollapsedBar
 
 -- 2. Mini Kotak Widget (Mode Kotak yang BISA DI-DRAG)
-local MiniKotak = Instance.new("Frame")
+MiniKotak = Instance.new("Frame")
 MiniKotak.Name = "MiniKotak"
 MiniKotak.Size = UDim2.new(0, 44, 0, 44)
 MiniKotak.Position = UDim2.new(0, 20, 0.5, -22)
@@ -327,7 +361,7 @@ UserInputService.InputChanged:Connect(function(input)
 end)
 
 -- 3. Main Window Frame (520 x 360 px Standard Hub Layout)
-local MainFrame = Instance.new("Frame")
+MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
 MainFrame.Size = UDim2.new(0, 520, 0, 360)
 MainFrame.Position = UDim2.new(0.5, -260, 0.5, -180)
@@ -450,10 +484,13 @@ end)
 
 CloseColBtn.MouseButton1Click:Connect(function()
     CollapsedBar.Visible = false
+    MiniKotak.Visible = true
 end)
 
 CloseBtn.MouseButton1Click:Connect(function()
-    ScreenGui.Enabled = false
+    MainFrame.Visible = false
+    CollapsedBar.Visible = false
+    MiniKotak.Visible = true
 end)
 
 MiniKotakBtn.MouseButton1Click:Connect(function()
@@ -464,7 +501,7 @@ MiniKotakBtn.MouseButton1Click:Connect(function()
 end)
 
 -- Sidebar Navigasi Kiri (130px)
-local Sidebar = Instance.new("Frame")
+Sidebar = Instance.new("Frame")
 Sidebar.Name = "Sidebar"
 Sidebar.Size = UDim2.new(0, 130, 1, -41)
 Sidebar.Position = UDim2.new(0, 0, 0, 41)
@@ -491,7 +528,7 @@ local StatusCorner = Instance.new("UICorner")
 StatusCorner.CornerRadius = UDim.new(0, 6)
 StatusCorner.Parent = StatusCard
 
-local DotIndicator = Instance.new("Frame")
+DotIndicator = Instance.new("Frame")
 DotIndicator.Size = UDim2.new(0, 7, 0, 7)
 DotIndicator.Position = UDim2.new(0, 10, 0.5, -3)
 DotIndicator.BackgroundColor3 = Color3.fromRGB(0, 230, 120)
@@ -513,7 +550,7 @@ StatusTitle.TextSize = 8
 StatusTitle.TextXAlignment = Enum.TextXAlignment.Left
 StatusTitle.Parent = StatusCard
 
-local StatusVal = Instance.new("TextLabel")
+StatusVal = Instance.new("TextLabel")
 StatusVal.Size = UDim2.new(1, -26, 0, 14)
 StatusVal.Position = UDim2.new(0, 22, 0, 17)
 StatusVal.BackgroundTransparency = 1
@@ -619,8 +656,8 @@ SwitchTab("Player")
 -- ============================================================================
 -- DROPDOWN SYSTEM REUSABLE (UNTUK SEMUA TAB)
 -- ============================================================================
-local activeDropdownList = nil
-local activeDropdownArrow = nil
+activeDropdownList = nil
+activeDropdownArrow = nil
 
 function CloseAllDropdowns()
     if activeDropdownList then
@@ -961,7 +998,7 @@ TPDropdownLabel.TextSize = 10
 TPDropdownLabel.TextXAlignment = Enum.TextXAlignment.Left
 TPDropdownLabel.Parent = MainTab
 
-local TPScanBtn = Instance.new("TextButton")
+TPScanBtn = Instance.new("TextButton")
 TPScanBtn.Size = UDim2.new(0.35, -28, 0, 16)
 TPScanBtn.Position = UDim2.new(0.65, 14, 0, 121)
 TPScanBtn.BackgroundColor3 = Color3.fromRGB(28, 34, 48)
@@ -982,7 +1019,7 @@ TPScanStroke.Color = Color3.fromRGB(45, 55, 75)
 TPScanStroke.Parent = TPScanBtn
 
 -- Dropdown Button Target Nickname
-local TPDropdownBtn = Instance.new("TextButton")
+TPDropdownBtn = Instance.new("TextButton")
 TPDropdownBtn.Size = UDim2.new(1, -28, 0, 26)
 TPDropdownBtn.Position = UDim2.new(0, 14, 0, 140)
 TPDropdownBtn.BackgroundColor3 = Color3.fromRGB(25, 28, 38)
@@ -1004,7 +1041,7 @@ TPDropdownStroke.Thickness = 1
 TPDropdownStroke.Color = Color3.fromRGB(45, 50, 65)
 TPDropdownStroke.Parent = TPDropdownBtn
 
-local TPArrow = Instance.new("TextLabel")
+TPArrow = Instance.new("TextLabel")
 TPArrow.Size = UDim2.new(0, 20, 1, 0)
 TPArrow.Position = UDim2.new(1, -25, 0, 0)
 TPArrow.BackgroundTransparency = 1
@@ -1016,7 +1053,7 @@ TPArrow.ZIndex = 20
 TPArrow.Parent = TPDropdownBtn
 
 -- Dropdown List (ScrollingFrame)
-local TPListFrame = Instance.new("ScrollingFrame")
+TPListFrame = Instance.new("ScrollingFrame")
 TPListFrame.Size = UDim2.new(1, -28, 0, 120)
 TPListFrame.Position = UDim2.new(0, 14, 0, 168)
 TPListFrame.BackgroundColor3 = Color3.fromRGB(18, 20, 28)
@@ -1139,7 +1176,7 @@ UserInputService.InputEnded:Connect(function(input)
 end)
 
 -- Tombol Teleport & Terbang
-local TPButton = Instance.new("TextButton")
+TPButton = Instance.new("TextButton")
 TPButton.Size = UDim2.new(0.5, -18, 0, 32)
 TPButton.Position = UDim2.new(0, 14, 0, 230)
 TPButton.BackgroundColor3 = Color3.fromRGB(0, 135, 240)
@@ -1154,7 +1191,7 @@ local TPBtnCorner = Instance.new("UICorner")
 TPBtnCorner.CornerRadius = UDim.new(0, 6)
 TPBtnCorner.Parent = TPButton
 
-local FlyButton = Instance.new("TextButton")
+FlyButton = Instance.new("TextButton")
 FlyButton.Size = UDim2.new(0.5, -18, 0, 32)
 FlyButton.Position = UDim2.new(0.5, 4, 0, 230)
 FlyButton.BackgroundColor3 = Color3.fromRGB(30, 150, 90)
@@ -1186,7 +1223,7 @@ TPStatusStroke.Thickness = 1
 TPStatusStroke.Color = Color3.fromRGB(35, 40, 55)
 TPStatusStroke.Parent = TPStatusCard
 
-local TPStatusLabel = Instance.new("TextLabel")
+TPStatusLabel = Instance.new("TextLabel")
 TPStatusLabel.Size = UDim2.new(1, -16, 1, 0)
 TPStatusLabel.Position = UDim2.new(0, 8, 0, 0)
 TPStatusLabel.BackgroundTransparency = 1
@@ -1341,7 +1378,7 @@ TrackingInfoStroke.Thickness = 1
 TrackingInfoStroke.Color = Color3.fromRGB(35, 40, 55)
 TrackingInfoStroke.Parent = TrackingInfoCard
 
-local TrackingStatusLabel = Instance.new("TextLabel")
+TrackingStatusLabel = Instance.new("TextLabel")
 TrackingStatusLabel.Size = UDim2.new(1, -120, 0, 16)
 TrackingStatusLabel.Position = UDim2.new(0, 10, 0, 7)
 TrackingStatusLabel.BackgroundTransparency = 1
@@ -1352,7 +1389,7 @@ TrackingStatusLabel.TextSize = 11
 TrackingStatusLabel.TextXAlignment = Enum.TextXAlignment.Left
 TrackingStatusLabel.Parent = TrackingInfoCard
 
-local TrackingTargetLabel = Instance.new("TextLabel")
+TrackingTargetLabel = Instance.new("TextLabel")
 TrackingTargetLabel.Size = UDim2.new(1, -16, 0, 14)
 TrackingTargetLabel.Position = UDim2.new(0, 10, 0, 27)
 TrackingTargetLabel.BackgroundTransparency = 1
@@ -1375,7 +1412,7 @@ TrackingMethodBadge.TextXAlignment = Enum.TextXAlignment.Right
 TrackingMethodBadge.Parent = TrackingInfoCard
 
 -- Tombol Toggle Tracking ON/OFF
-local TrackingToggleButton = Instance.new("TextButton")
+TrackingToggleButton = Instance.new("TextButton")
 TrackingToggleButton.Size = UDim2.new(1, -28, 0, 30)
 TrackingToggleButton.Position = UDim2.new(0, 14, 0, 92)
 TrackingToggleButton.BackgroundColor3 = Color3.fromRGB(0, 135, 240)
@@ -1452,7 +1489,7 @@ AutoShootSectionTitle.TextSize = 10
 AutoShootSectionTitle.TextXAlignment = Enum.TextXAlignment.Left
 AutoShootSectionTitle.Parent = TrackingTab
 
-local AutoShootToggleBtn = Instance.new("TextButton")
+AutoShootToggleBtn = Instance.new("TextButton")
 AutoShootToggleBtn.Size = UDim2.new(1, -28, 0, 30)
 AutoShootToggleBtn.Position = UDim2.new(0, 14, 0, 574)
 AutoShootToggleBtn.BackgroundColor3 = Color3.fromRGB(35, 40, 52)
@@ -1467,7 +1504,7 @@ local AutoShootToggleCorner = Instance.new("UICorner")
 AutoShootToggleCorner.CornerRadius = UDim.new(0, 6)
 AutoShootToggleCorner.Parent = AutoShootToggleBtn
 
-local AutoShootToggleStroke = Instance.new("UIStroke")
+AutoShootToggleStroke = Instance.new("UIStroke")
 AutoShootToggleStroke.Thickness = 1
 AutoShootToggleStroke.Color = Color3.fromRGB(50, 58, 76)
 AutoShootToggleStroke.Parent = AutoShootToggleBtn
@@ -1625,7 +1662,7 @@ local InfoCorner = Instance.new("UICorner")
 InfoCorner.CornerRadius = UDim.new(0, 6)
 InfoCorner.Parent = InfoCard
 
-local TargetNameLabel = Instance.new("TextLabel")
+TargetNameLabel = Instance.new("TextLabel")
 TargetNameLabel.Size = UDim2.new(1, -12, 0, 16)
 TargetNameLabel.Position = UDim2.new(0, 8, 0, 5)
 TargetNameLabel.BackgroundTransparency = 1
@@ -1636,7 +1673,7 @@ TargetNameLabel.TextSize = 11
 TargetNameLabel.TextXAlignment = Enum.TextXAlignment.Left
 TargetNameLabel.Parent = InfoCard
 
-local DistanceLabel = Instance.new("TextLabel")
+DistanceLabel = Instance.new("TextLabel")
 DistanceLabel.Size = UDim2.new(1, -12, 0, 14)
 DistanceLabel.Position = UDim2.new(0, 8, 0, 21)
 DistanceLabel.BackgroundTransparency = 1
@@ -1658,7 +1695,7 @@ local HealthBarCorner = Instance.new("UICorner")
 HealthBarCorner.CornerRadius = UDim.new(1, 0)
 HealthBarCorner.Parent = HealthBarBg
 
-local HealthBarFill = Instance.new("Frame")
+HealthBarFill = Instance.new("Frame")
 HealthBarFill.Size = UDim2.new(0, 0, 1, 0)
 HealthBarFill.BackgroundColor3 = Color3.fromRGB(50, 205, 120)
 HealthBarFill.BorderSizePixel = 0
@@ -1669,7 +1706,7 @@ HealthBarFillCorner.CornerRadius = UDim.new(1, 0)
 HealthBarFillCorner.Parent = HealthBarFill
 
 -- Tombol Toggle ON/OFF Utama & Switch Target
-local ToggleButton = Instance.new("TextButton")
+ToggleButton = Instance.new("TextButton")
 ToggleButton.Size = UDim2.new(0.68, -6, 0, 30)
 ToggleButton.Position = UDim2.new(0, 14, 0, 94)
 ToggleButton.BackgroundColor3 = Color3.fromRGB(0, 135, 240)
@@ -1684,7 +1721,7 @@ local ToggleBtnCorner = Instance.new("UICorner")
 ToggleBtnCorner.CornerRadius = UDim.new(0, 6)
 ToggleBtnCorner.Parent = ToggleButton
 
-local SwitchButton = Instance.new("TextButton")
+SwitchButton = Instance.new("TextButton")
 SwitchButton.Size = UDim2.new(0.32, -22, 0, 30)
 SwitchButton.Position = UDim2.new(0.68, 14, 0, 94)
 SwitchButton.BackgroundColor3 = Color3.fromRGB(35, 40, 52)
@@ -1761,7 +1798,7 @@ end)
 -- SLIDER PENGATUR JARAK DETEKSI DI TAB PLAYER
 -- ============================================================================
 local MinDistance = 20
-local MaxDistance = 300
+MaxDistance = 300
 
 local SliderContainer = Instance.new("Frame")
 SliderContainer.Name = "SliderContainer"
@@ -1869,6 +1906,9 @@ UserInputService.InputEnded:Connect(function(input)
         isSliding = false
     end
 end)
+
+
+end
 
 -- ============================================================================
 -- HITBOX VISUAL SYSTEM (HIGHLIGHT + SELECTIONBOX)
