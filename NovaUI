@@ -710,23 +710,25 @@ local function Slider(parent, title, desc, mn, mx, default, suffix, callback)
     Label(card, title, UDim2.new(0.65, 0, 0, 15), UDim2.fromOffset(12, 9), F.Semi, T.Text, 10)
     Label(card, desc, UDim2.new(0.65, 0, 0, 10), UDim2.fromOffset(12, 25), F.Regular, T.Text2, 7)
     local val = Label(card, string.format("%.1f%s", value, suffix or ""), UDim2.new(0, 70, 0, 16), UDim2.new(1, -82, 0, 9), F.Bold, T.Blue2, 10, Enum.TextXAlignment.Right)
-    local track = New("Frame", {Size = UDim2.new(1, -24, 0, 5), Position = UDim2.fromOffset(12, 51), BackgroundColor3 = T.Track}, card); Corner(track, 3); Stroke(track, T.Border, 0.45)
+    local track = New("Frame", {Size = UDim2.new(1, -24, 0, 6), Position = UDim2.fromOffset(12, 50), BackgroundColor3 = T.Track}, card); Corner(track, 3); Stroke(track, T.Border, 0.45)
     local p = (value - mn) / (mx - mn)
     local fill = New("Frame", {Size = UDim2.new(p, 0, 1, 0), BackgroundColor3 = T.Blue}, track); Corner(fill, 3)
-    local knob = New("Frame", {Size = UDim2.fromOffset(12, 12), Position = UDim2.new(p, -6, 0.5, -6), BackgroundColor3 = T.White}, track); Corner(knob, 6); Stroke(knob, T.Blue2, 0.25)
+    local knob = New("Frame", {Size = UDim2.fromOffset(14, 14), Position = UDim2.new(p, -7, 0.5, -7), BackgroundColor3 = T.White}, track); Corner(knob, 7); Stroke(knob, T.Blue2, 0.25)
+    local dragArea = New("TextButton", {Size = UDim2.new(1, 0, 0, 36), Position = UDim2.fromOffset(0, 36), BackgroundTransparency = 1, Text = "", AutoButtonColor = false}, card)
     local drag = false
     local function setFromX(x)
-        local px = math.clamp((x - track.AbsolutePosition.X) / track.AbsoluteSize.X, 0, 1)
+        local px = math.clamp((x - track.AbsolutePosition.X) / math.max(1, track.AbsoluteSize.X), 0, 1)
         value = math.floor((mn + (mx - mn) * px) * 10 + 0.5) / 10
-        fill.Size = UDim2.new(px, 0, 1, 0); knob.Position = UDim2.new(px, -6, 0.5, -6); val.Text = string.format("%.1f%s", value, suffix or "")
+        fill.Size = UDim2.new(px, 0, 1, 0); knob.Position = UDim2.new(px, -7, 0.5, -7); val.Text = string.format("%.1f%s", value, suffix or "")
         if callback then callback(value) end
     end
+    dragArea.InputBegan:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then drag = true; setFromX(i.Position.X) end end)
     track.InputBegan:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then drag = true; setFromX(i.Position.X) end end)
     UserInputService.InputChanged:Connect(function(i) if drag and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then setFromX(i.Position.X) end end)
     UserInputService.InputEnded:Connect(function(i) if drag and (i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch) then drag = false end end)
-    card.MouseEnter:Connect(function() Tween(card, 0.1, {BackgroundColor3 = T.Hover}); Tween(st, 0.1, {Color = T.Border2}); Tween(knob, 0.1, {Size = UDim2.fromOffset(15, 15)}) end)
-    card.MouseLeave:Connect(function() Tween(card, 0.1, {BackgroundColor3 = T.Card}); Tween(st, 0.1, {Color = T.Border}); Tween(knob, 0.1, {Size = UDim2.fromOffset(12, 12)}) end)
-    return {Card = card, Get = function() return value end, Set = function(v) value = math.clamp(v, mn, mx); local px = (value - mn) / (mx - mn); fill.Size = UDim2.new(px, 0, 1, 0); knob.Position = UDim2.new(px, -6, 0.5, -6); val.Text = string.format("%.1f%s", value, suffix or "") end}
+    card.MouseEnter:Connect(function() Tween(card, 0.1, {BackgroundColor3 = T.Hover}); Tween(st, 0.1, {Color = T.Border2}); Tween(knob, 0.1, {Size = UDim2.fromOffset(16, 16)}) end)
+    card.MouseLeave:Connect(function() Tween(card, 0.1, {BackgroundColor3 = T.Card}); Tween(st, 0.1, {Color = T.Border}); Tween(knob, 0.1, {Size = UDim2.fromOffset(14, 14)}) end)
+    return {Card = card, Get = function() return value end, Set = function(v) value = math.clamp(v, mn, mx); local px = (value - mn) / (mx - mn); fill.Size = UDim2.new(px, 0, 1, 0); knob.Position = UDim2.new(px, -7, 0.5, -7); val.Text = string.format("%.1f%s", value, suffix or "") end}
 end
 
 local function Keybind(parent, title, defaultKey, callback)
@@ -1060,38 +1062,57 @@ local function FindBestTarget()
     pcall(function()
         local enemies = GetEnemiesSortedByDistance()
         if #enemies == 0 then return end
+
+        local mode = Config.LockMode or "Distance"
         local centerPos = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-        local fovRadius = Config.BulletFOVRadius or 180
+        local fovRadius = Config.BulletFOVRadius or Config.BulletFOVCircleRadius or 180
 
-        local fovEnemies = {}
-        for _, entry in ipairs(enemies) do
-            local screenPos, onScreen = Camera:WorldToViewportPoint(entry.Part.Position)
-            if onScreen then
-                local screenDist = (Vector2.new(screenPos.X, screenPos.Y) - centerPos).Magnitude
-                if screenDist <= fovRadius then
-                    table.insert(fovEnemies, {Entry = entry, ScreenDist = screenDist})
-                end
-            end
-        end
-
-        if #fovEnemies > 0 then
+        if mode == "Distance" or mode:find("Distance") or mode:find("Jarak") then
+            -- 1. Mode Jarak 3D: Bebas sudut kamera / tanpa batas lingkaran FOV (Radius MaxLockDistance)
             if Config.TargetSwitchMode == "LowestHP" then
                 local lowestHP = math.huge
-                for _, item in ipairs(fovEnemies) do
-                    if (item.Entry.Health or math.huge) < lowestHP then
-                        lowestHP = item.Entry.Health; best = item.Entry
-                    end
-                end
-            elseif Config.LockMode == "Cursor" then
-                local shortestScreen = math.huge
-                for _, item in ipairs(fovEnemies) do
-                    if item.ScreenDist < shortestScreen then shortestScreen = item.ScreenDist; best = item.Entry end
+                for _, entry in ipairs(enemies) do
+                    local hp = entry.Health or math.huge
+                    if hp < lowestHP then lowestHP = hp; best = entry end
                 end
             else
-                local shortestDist = math.huge
-                for _, item in ipairs(fovEnemies) do
-                    if item.Entry.Distance < shortestDist then shortestDist = item.Entry.Distance; best = item.Entry end
+                best = enemies[1]
+            end
+        else
+            -- 2. Mode FOV Circle / Cursor: Hanya kunci musuh yang terlihat di dalam lingkaran FOV layar
+            local fovEnemies = {}
+            for _, entry in ipairs(enemies) do
+                local screenPos, onScreen = Camera:WorldToViewportPoint(entry.Part.Position)
+                if onScreen then
+                    local screenDist = (Vector2.new(screenPos.X, screenPos.Y) - centerPos).Magnitude
+                    if screenDist <= fovRadius then
+                        table.insert(fovEnemies, {Entry = entry, ScreenDist = screenDist})
+                    end
                 end
+            end
+
+            if #fovEnemies > 0 then
+                if Config.TargetSwitchMode == "LowestHP" then
+                    local lowestHP = math.huge
+                    for _, item in ipairs(fovEnemies) do
+                        if (item.Entry.Health or math.huge) < lowestHP then
+                            lowestHP = item.Entry.Health; best = item.Entry
+                        end
+                    end
+                elseif mode == "Cursor" or mode:find("Cursor") or mode:find("Kursor") then
+                    local shortestScreen = math.huge
+                    for _, item in ipairs(fovEnemies) do
+                        if item.ScreenDist < shortestScreen then shortestScreen = item.ScreenDist; best = item.Entry end
+                    end
+                else
+                    local shortestDist = math.huge
+                    for _, item in ipairs(fovEnemies) do
+                        if item.Entry.Distance < shortestDist then shortestDist = item.Entry.Distance; best = item.Entry end
+                    end
+                end
+            else
+                -- Fallback jika tidak ada musuh di dalam FOV layar atau FOV Circle dimatikan
+                best = enemies[1]
             end
         end
     end)
@@ -1319,20 +1340,77 @@ local function IsTargetVisible(targetPart)
     return res == nil
 end
 
+local function GetAutoShootTarget()
+    local myChar = LocalPlayer.Character
+    if not myChar then return nil end
+
+    if AutoLockEnabled and CurrentTargetChar and CurrentTargetPart and IsValidEnemy(CurrentTargetChar) then
+        if not Config.AutoShootWallCheck or IsTargetVisible(CurrentTargetPart) then
+            return CurrentTargetPart
+        end
+    end
+
+    local enemies = GetEnemiesSortedByDistance()
+    local centerPos = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    local fovRad = Config.BulletFOVRadius or 180
+
+    for _, entry in ipairs(enemies) do
+        local model = entry.Character
+        local part = nil
+        if Config.TargetPartChoice == "Head" then
+            part = model:FindFirstChild("Head") or entry.Part
+        else
+            part = model:FindFirstChild("HumanoidRootPart") or model:FindFirstChild("Torso") or entry.Part
+        end
+        if part and part:IsA("BasePart") then
+            local screenPos, onScreen = Camera:WorldToViewportPoint(part.Position)
+            if onScreen then
+                local screenDist = (Vector2.new(screenPos.X, screenPos.Y) - centerPos).Magnitude
+                if screenDist <= fovRad then
+                    if not Config.AutoShootWallCheck or IsTargetVisible(part) then
+                        return part
+                    end
+                end
+            end
+        end
+    end
+    return nil
+end
+
 local function TriggerShoot()
     local now = tick()
-    if now - lastAutoShootTick < (Config.AutoShootDelayMs / 1000) then return end
+    local delaySec = (Config.AutoShootDelayMs or 100) / 1000
+    if now - lastAutoShootTick < delaySec then return end
     lastAutoShootTick = now
+
     pcall(function()
         local myChar = LocalPlayer.Character
-        local tool = myChar and myChar:FindFirstChildOfClass("Tool")
-        if tool then tool:Activate() end
+        if not myChar then return end
+
+        local tool = myChar:FindFirstChildOfClass("Tool")
+        if tool then
+            tool:Activate()
+        end
+
+        if typeof(mouse1click) == "function" then
+            pcall(mouse1click)
+        elseif typeof(mouse1press) == "function" and typeof(mouse1release) == "function" then
+            pcall(function()
+                mouse1press()
+                task.delay(0.02, function() pcall(mouse1release) end)
+            end)
+        end
+
         local vim = nil
         pcall(function() vim = game:GetService("VirtualInputManager") end)
         if vim then
             local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-            vim:SendMouseButtonEvent(center.X, center.Y, 0, true, game, 1)
-            task.delay(0.02, function() vim:SendMouseButtonEvent(center.X, center.Y, 0, false, game, 1) end)
+            pcall(function()
+                vim:SendMouseButtonEvent(center.X, center.Y, 0, true, game, 1)
+                task.delay(0.02, function()
+                    pcall(function() vim:SendMouseButtonEvent(center.X, center.Y, 0, false, game, 1) end)
+                end)
+            end)
         end
     end)
 end
@@ -1353,15 +1431,33 @@ local function StopFly(msg, col)
     if msg then Notify("Fly System", msg, col or T.Cyan) end
 end
 
+local function ResolveActiveTarget()
+    if CurrentTargetChar and IsValidEnemy(CurrentTargetChar) then
+        return CurrentTargetChar
+    end
+    local best = FindBestTarget()
+    if best and best.Character and IsValidEnemy(best.Character) then
+        SetTarget(best)
+        return best.Character
+    end
+    local enemies = GetEnemiesSortedByDistance()
+    if #enemies > 0 and enemies[1].Character and IsValidEnemy(enemies[1].Character) then
+        SetTarget(enemies[1])
+        return enemies[1].Character
+    end
+    return nil
+end
+
 local function ExecuteTeleport()
     pcall(function()
-        if not CurrentTargetChar or not IsValidEnemy(CurrentTargetChar) then
-            Notify("Teleport Error", "Kunci target musuh terlebih dahulu!", T.Red)
+        local targetChar = ResolveActiveTarget()
+        if not targetChar then
+            Notify("Teleport Error", "Tidak ada musuh dalam jangkauan jarak!", T.Red)
             return
         end
         local myChar = LocalPlayer.Character
         local myRoot = myChar and GetTargetPart(myChar)
-        local tRoot = GetTargetPart(CurrentTargetChar)
+        local tRoot = GetTargetPart(targetChar)
         if myRoot and tRoot then
             local behindPos = tRoot.CFrame * CFrame.new(0, 2, 3.5)
             myRoot.CFrame = CFrame.lookAt(behindPos.Position, tRoot.Position)
@@ -1372,8 +1468,9 @@ end
 
 local function ToggleFly()
     if isFlying then StopFly("Terbang dinonaktifkan.", T.Yellow); return end
-    if not CurrentTargetChar or not IsValidEnemy(CurrentTargetChar) then
-        Notify("Fly Error", "Kunci target musuh terlebih dahulu!", T.Red)
+    local targetChar = ResolveActiveTarget()
+    if not targetChar then
+        Notify("Fly Error", "Tidak ada musuh dalam jangkauan jarak!", T.Red)
         return
     end
     isFlying = true
@@ -1395,10 +1492,10 @@ local function ToggleFly()
             if not isFlying then StopFly(); return end
             local myChar = LocalPlayer.Character
             local myRoot = myChar and GetTargetPart(myChar)
-            if not myRoot or not CurrentTargetChar or not IsValidEnemy(CurrentTargetChar) then
+            if not myRoot or not targetChar or not targetChar.Parent or not IsValidEnemy(targetChar) then
                 StopFly("Target hilang atau mati!", T.Red); return
             end
-            local tRoot = GetTargetPart(CurrentTargetChar)
+            local tRoot = GetTargetPart(targetChar)
             if not tRoot then StopFly(); return end
             local targetPos = tRoot.Position + Vector3.new(0, 2, 0)
             local diff = targetPos - myRoot.Position
@@ -1412,7 +1509,6 @@ local function ToggleFly()
     end)
 end
 
--- ============================================================================
 -- 11. BUILD PAGES CONTENT
 -- ============================================================================
 -- 1. DASHBOARD PAGE (Overview + Quick Teleport / Fly / Combat Actions)
@@ -1475,64 +1571,110 @@ local combatPage = Page("Combat")
 PageHeader(combatPage, "COMBAT", "Aim Lock & Movement", "Kunci target musuh otomatis, teleportasi, dan navigasi terbang.")
 
 local aimDrawer = Drawer(combatPage, "🎯 Aim Lock Controls Utama", "Sistem penguncian target & sudut pandang kamera", true, "🎯")
-Toggle(aimDrawer, "Aim Lock Master", "Aktifkan penguncian kamera otomatis ke musuh terdekat", Config.AimLockEnabled, function(v)
+Toggle(aimDrawer, "Aim Lock Master", "Aktifkan penguncian kamera otomatis ke musuh terdekat", AutoLockEnabled, function(v)
+    AutoLockEnabled = v
     Config.AimLockEnabled = v
-    if not v and CurrentTargetChar then SetTarget(nil) end
+    if v then
+        SetTarget(FindBestTarget())
+    else
+        SetTarget(nil)
+    end
+    Notify("Aim Lock", v and "Engine LOCKED" or "Engine STANDBY", v and T.Green or T.Text2)
 end)
-Dropdown(aimDrawer, "Target Body Part", "Pilih bagian tubuh musuh yang ditarget", {"Head", "Torso"}, Config.TargetPartChoice, function(v)
+Dropdown(aimDrawer, "Aim Lock Mode", "Pilih metode pemilihan target untuk dikunci", {"Distance (Jarak 3D)", "FOV Circle (Layar)", "Cursor (Kursor)"}, (Config.LockMode == "FOV" and "FOV Circle (Layar)") or (Config.LockMode == "Cursor" and "Cursor (Kursor)") or "Distance (Jarak 3D)", function(v)
+    if v:find("Distance") or v:find("Jarak") then
+        Config.LockMode = "Distance"
+    elseif v:find("Cursor") or v:find("Kursor") then
+        Config.LockMode = "Cursor"
+    else
+        Config.LockMode = "FOV"
+    end
+    if AutoLockEnabled and CurrentTargetChar then SetTarget(FindBestTarget()) end
+end)
+Dropdown(aimDrawer, "Target Body Part", "Pilih bagian tubuh musuh yang ditarget", {"Head", "Torso"}, Config.TargetPartChoice or "Head", function(v)
     Config.TargetPartChoice = v
     if CurrentTargetChar then SetTarget(FindBestTarget()) end
 end)
-Dropdown(aimDrawer, "Target Entity Type", "Filter musuh yang dapat dikunci oleh sistem", {"All", "Player", "NPC"}, Config.TargetType, function(v)
+Dropdown(aimDrawer, "Target Entity Type", "Filter musuh yang dapat dikunci oleh sistem", {"All", "Player", "NPC"}, Config.TargetType or "All", function(v)
     Config.TargetType = v
     if CurrentTargetChar then SetTarget(FindBestTarget()) end
 end)
-Dropdown(aimDrawer, "Target Switch Mode", "Logika pergantian target ketika tombol ditekan", {"Dynamic", "LowestHP", "Persistent"}, Config.SwitchMode, function(v)
+Dropdown(aimDrawer, "Target Switch Mode", "Logika pergantian target ketika tombol ditekan", {"Dynamic", "LowestHP", "Persistent"}, Config.TargetSwitchMode or "Dynamic", function(v)
+    Config.TargetSwitchMode = v
     Config.SwitchMode = v
 end)
 Toggle(aimDrawer, "Team Check", "Abaikan pemain satu tim agar tidak terkunci", Config.TeamCheck, function(v)
     Config.TeamCheck = v
 end)
-Toggle(aimDrawer, "Auto Face Character", "Paksa karakter menghadap langsung ke arah target", Config.AutoFaceTarget, function(v)
+Toggle(aimDrawer, "Auto Face Character", "Paksa karakter menghadap langsung ke arah target", Config.AutoFaceCharacter, function(v)
+    Config.AutoFaceCharacter = v
     Config.AutoFaceTarget = v
 end)
 
 local aggroDrawer = Drawer(combatPage, "⚡ Keganasan & Kehalusan Lock", "Penyesuaian kecepatan kamera dan jangkauan lock", false, "⚡")
-Slider(aggroDrawer, "Camera Smoothing", "Tingkat kehalusan kamera (makin kecil makin instan/agresif)", 1, 100, Config.CameraSmoothness, "", function(v)
+Slider(aggroDrawer, "Camera Smoothing", "Tingkat kehalusan kamera lerp (0.05 halus s/d 1.0 instan)", 0.05, 1.0, Config.CameraSmoothing or 0.52, "", function(v)
+    Config.CameraSmoothing = v
     Config.CameraSmoothness = v
 end)
-Slider(aggroDrawer, "Max Lock Distance", "Jarak jangkauan deteksi musuh maksimum", 50, 2000, Config.MaxAimDistance, " studs", function(v)
+Slider(aggroDrawer, "Max Lock Distance", "Jarak jangkauan deteksi musuh maksimum dalam studs", 30, 2000, Config.MaxLockDistance or 80, " studs", function(v)
+    Config.MaxLockDistance = v
     Config.MaxAimDistance = v
+    Config.BreakDistance = v + 30
 end)
 
-local flyDrawer = Drawer(combatPage, "🚀 Teleport & Fly Noclip", "Navigasi instan ke musuh dan penerbangan noclip", false, "🚀")
-PrimaryButton(flyDrawer, "⚡ TELEPORT INSTAN KE TARGET", function()
-    ExecuteTeleport()
+local flyDrawer = Drawer(combatPage, "🚀 Navigasi Teleport & Terbang (Fly)", "Metode berpindah instan ke musuh atau meluncur bebas", false, "🚀")
+local currentNavMode = "Instant Teleport"
+Dropdown(flyDrawer, "Pilih Mode Navigasi", "Pilih metode berpindah ke posisi target musuh", {"Instant Teleport", "Terbang ke Target (Fly)"}, currentNavMode, function(v)
+    currentNavMode = v
 end)
-Toggle(flyDrawer, "Fly Noclip", "Mode terbang bebas menembus dinding ke posisi target", Config.FlyNoclipEnabled, function(v)
+
+PrimaryButton(flyDrawer, "⚡ JALANKAN NAVIGASI KE TARGET", function()
+    if currentNavMode == "Instant Teleport" then
+        ExecuteTeleport()
+    else
+        ToggleFly()
+    end
+end)
+
+local flyToggleBtn = Button(flyDrawer, {
+    Size = UDim2.new(1, 0, 0, 34),
+    BackgroundColor3 = T.DeepBlue,
+    Text = "🚀   TOGGLE TERBANG (FLY: ON / OFF)",
+    TextColor3 = T.Yellow,
+    Font = F.Bold,
+    TextSize = 10,
+})
+Corner(flyToggleBtn, 6); Stroke(flyToggleBtn, T.Yellow, 0.35)
+flyToggleBtn.MouseButton1Click:Connect(ToggleFly)
+
+Slider(flyDrawer, "Fly Speed (Kecepatan Terbang)", "Kecepatan karakter meluncur ke target di udara", 20, 350, Config.FlySpeed or 120, " spd", function(v)
+    Config.FlySpeed = v
+end)
+Toggle(flyDrawer, "Fly Noclip (Tembus Dinding)", "Mode terbang bebas menembus dinding ke posisi target", Config.FlyNoclipEnabled or false, function(v)
     Config.FlyNoclipEnabled = v
     ToggleFly()
 end)
-Slider(flyDrawer, "Fly Speed", "Kecepatan terbang noclip karakter", 20, 300, Config.FlySpeed, " spd", function(v)
-    Config.FlySpeed = v
-end)
-Toggle(flyDrawer, "Speed Boost", "Tingkatkan kecepatan lari karakter utama", Config.SpeedBoost, function(v)
+Toggle(flyDrawer, "Speed Boost", "Tingkatkan kecepatan lari karakter utama", Config.SpeedBoostEnabled or false, function(v)
+    Config.SpeedBoostEnabled = v
     Config.SpeedBoost = v
 end)
-Slider(flyDrawer, "Speed Multiplier", "Pengali kecepatan jalan karakter", 1, 5, Config.SpeedMultiplier, "x", function(v)
+Slider(flyDrawer, "Speed Multiplier", "Pengali kecepatan jalan karakter", 1, 5, Config.SpeedBoostMultiplier or 2, "x", function(v)
+    Config.SpeedBoostMultiplier = v
     Config.SpeedMultiplier = v
 end)
-Toggle(flyDrawer, "Bunny Hop", "Simulasi lompatan berulang otomatis untuk kecepatan ekstra", Config.BunnyHop, function(v)
+Toggle(flyDrawer, "Bunny Hop", "Simulasi lompatan berulang otomatis untuk kecepatan ekstra", Config.BunnyHopEnabled or false, function(v)
+    Config.BunnyHopEnabled = v
     Config.BunnyHop = v
 end)
 
--- 3. TRACKING PAGE (Silent Aim, Hit Part, Projectiles, Prediction, Auto Shoot)
 local trackingPage = Page("Tracking")
 PageHeader(trackingPage, "TRACKING", "Silent Aim & TriggerBot", "Peluru otomatis membelok ke arah target dan auto shoot.")
 
 local trackDrawer = Drawer(trackingPage, "🎯 Silent Aim & Bullet Tracking", "Peluru otomatis melacak dan mengenai musuh", true, "🎯")
-Toggle(trackDrawer, "Silent Aim Master", "Arahkan tembakan peluru langsung ke target", Config.SilentAimEnabled, function(v)
+Toggle(trackDrawer, "Silent Aim Master", "Arahkan tembakan peluru langsung ke target", Config.BulletTrackingEnabled or Config.SilentAimEnabled, function(v)
     Config.SilentAimEnabled = v
+    Config.BulletTrackingEnabled = v
+    _G.FeathCombatConfig = Config
     ReticleFrame.Visible = v or Config.HUDPrecisionCrosshair
     Notify("Silent Aim", v and "Aktif" or "Nonaktif", v and T.Green or T.Red)
 end)
@@ -1559,8 +1701,11 @@ Toggle(trackDrawer, "Laser Neon Tracer Beam", "Garis laser neon saat peluru berh
 end)
 
 local shootDrawer = Drawer(trackingPage, "🔫 TriggerBot (Auto Shoot)", "Tembak otomatis ketika target berada dalam bidikan", false, "🔫")
-Toggle(shootDrawer, "Auto Shoot (TriggerBot)", "Senjata otomatis menembak saat musuh terbidik", Config.AutoShoot, function(v)
+Toggle(shootDrawer, "Auto Shoot (TriggerBot)", "Senjata otomatis menembak saat musuh terbidik", Config.AutoShootEnabled or Config.AutoShoot, function(v)
     Config.AutoShoot = v
+    Config.AutoShootEnabled = v
+    _G.FeathCombatConfig = Config
+    Notify("Auto Shoot", v and "Aktif" or "Nonaktif", v and T.Green or T.Red)
 end)
 Toggle(shootDrawer, "Wall Check Obstacle Filter", "Hanya tembak jika tidak ada dinding/tembok penghalang", Config.WallCheck, function(v)
     Config.WallCheck = v
@@ -1595,13 +1740,16 @@ Slider(espDrawer, "Vertical Radius (Y)", "Jarak deteksi atas-bawah (ketinggian)"
 end)
 
 local fovDrawer = Drawer(visualPage, "⭕ HUD & Field of View", "Lingkaran bidikan dan sudut kamera", false, "⭕")
-Toggle(fovDrawer, "Show FOV Circle", "Tampilkan lingkaran batas jangkauan bidik peluru di layar", Config.ShowFOVCircle, function(v)
+Toggle(fovDrawer, "Show FOV Circle", "Tampilkan lingkaran batas jangkauan bidik peluru di layar", Config.BulletShowFOVCircle ~= false, function(v)
     Config.ShowFOVCircle = v
+    Config.BulletShowFOVCircle = v
     FOVCircle.Visible = v
 end)
-Slider(fovDrawer, "FOV Circle Radius", "Ukuran diameter lingkaran FOV dalam pixel", 30, 400, Config.BulletFOVCircleRadius, " px", function(v)
+Slider(fovDrawer, "FOV Circle Radius", "Ukuran diameter lingkaran FOV dalam pixel", 30, 400, Config.BulletFOVRadius or 180, " px", function(v)
+    Config.BulletFOVRadius = v
     Config.BulletFOVCircleRadius = v
-    FOVCircle.Size = UDim2.fromOffset(v * 2, v * 2)
+    local diameter = v * 2
+    FOVCircle.Size = UDim2.fromOffset(diameter, diameter)
 end)
 Toggle(fovDrawer, "Precision HUD Crosshair", "Reticle bidikan akurat di tengah layar", Config.HUDPrecisionCrosshair, function(v)
     Config.HUDPrecisionCrosshair = v
@@ -1878,13 +2026,14 @@ end)
 UserInputService.InputBegan:Connect(function(input, gp)
     if gp then return end
     pcall(function()
-        if input.KeyCode == CONFIG.ToggleKey then
+        if input.KeyCode == (CONFIG.ToggleKey or Enum.KeyCode.RightShift) then
             SetVisible(not visible)
-        elseif input.KeyCode == Config.ToggleKey then
+        elseif input.KeyCode == (Config.LockKey or Config.ToggleKey or Enum.KeyCode.Q) then
             AutoLockEnabled = not AutoLockEnabled
+            Config.AimLockEnabled = AutoLockEnabled
             if AutoLockEnabled then SetTarget(FindBestTarget()) else SetTarget(nil) end
             Notify("Aim Lock", AutoLockEnabled and "Engine LOCKED" or "Engine STANDBY", AutoLockEnabled and T.Green or T.Text2)
-        elseif input.KeyCode == Config.SwitchKey then
+        elseif input.KeyCode == (Config.SwitchKey or Enum.KeyCode.Tab) then
             if AutoLockEnabled then
                 local enemies = GetEnemiesSortedByDistance()
                 if #enemies > 1 then
@@ -1899,8 +2048,9 @@ UserInputService.InputBegan:Connect(function(input, gp)
                     SetTarget(enemies[1])
                 end
             end
-        elseif input.KeyCode == Config.BulletToggleKey then
+        elseif input.KeyCode == (Config.SilentAimKey or Config.BulletToggleKey or Enum.KeyCode.T) then
             Config.BulletTrackingEnabled = not Config.BulletTrackingEnabled
+            Config.SilentAimEnabled = Config.BulletTrackingEnabled
             _G.FeathCombatConfig = Config
             Notify("Silent Aim", Config.BulletTrackingEnabled and "Enabled" or "Disabled", Config.BulletTrackingEnabled and T.Green or T.Text2)
         end
@@ -1944,8 +2094,8 @@ RunService.RenderStepped:Connect(function(dt)
             sysStatusLabel.Text = "AimLock: OFF"
         end
 
-        sTracking.Value.Text = Config.BulletTrackingEnabled and "ACTIVE" or "STANDBY"
-        sTracking.Value.TextColor3 = Config.BulletTrackingEnabled and T.Cyan or T.Text3
+        sTracking.Value.Text = (Config.BulletTrackingEnabled or Config.SilentAimEnabled) and "ACTIVE" or "STANDBY"
+        sTracking.Value.TextColor3 = (Config.BulletTrackingEnabled or Config.SilentAimEnabled) and T.Cyan or T.Text3
 
         if CurrentTargetChar and IsValidEnemy(CurrentTargetChar) then
             local isPlr, plrObj = IsPlayerCharacter(CurrentTargetChar)
@@ -1974,9 +2124,11 @@ RunService.RenderStepped:Connect(function(dt)
         end
 
         -- 2. FOV Circle Update
-        local shouldShowFOV = (Config.BulletTrackingEnabled or Config.AutoShootEnabled or AutoLockEnabled) and Config.BulletShowFOVCircle and Config.BulletUseFOV
+        local isFOVOn = (Config.BulletShowFOVCircle ~= false) and (Config.ShowFOVCircle ~= false)
+        local shouldShowFOV = (Config.BulletTrackingEnabled or Config.AutoShootEnabled or AutoLockEnabled) and isFOVOn and (Config.BulletUseFOV ~= false)
         if shouldShowFOV then
-            local diameter = Config.BulletFOVRadius * 2
+            local radius = Config.BulletFOVRadius or Config.BulletFOVCircleRadius or 180
+            local diameter = radius * 2
             FOVCircle.Size = UDim2.new(0, diameter, 0, diameter)
             if AutoLockEnabled and CurrentTargetPart then
                 FOVStroke.Color = T.Red; FOVStroke.Transparency = 0.15
@@ -1992,12 +2144,9 @@ RunService.RenderStepped:Connect(function(dt)
 
         -- 3. Auto Shoot (TriggerBot)
         if Config.AutoShootEnabled then
-            local tPart, _ = GetBulletTarget()
-            if not tPart and AutoLockEnabled and CurrentTargetPart then tPart = CurrentTargetPart end
-            if tPart then
-                if not Config.AutoShootWallCheck or IsTargetVisible(tPart) then
-                    TriggerShoot()
-                end
+            local shootTarget = GetAutoShootTarget()
+            if shootTarget then
+                TriggerShoot()
             end
         end
 
