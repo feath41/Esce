@@ -1,131 +1,34 @@
 --[[
-    ================================================================================
-    PROJECT NOVA - ADVANCED FUTURISTIC UTILITY & DASHBOARD GUI
-    ================================================================================
-    Engine / Framework: Luau (Roblox Engine Native)
-    Target Placement:   StarterPlayer -> StarterPlayerScripts (LocalScript)
-                        or ReplicatedFirst / StarterGui
-    Design Language:    High-Tech Cybernetic Utility / Dark Navy & Electric Blue
-    Dimensions:         520x360 pixels (Desktop compact, fully mobile-responsive)
-    Features:
-      ✓ Native Roblox UI Hierarchy (ScreenGui -> Window -> TitleBar/Sidebar/Content/StatusBar)
-      ✓ Fluid TweenService Animations (Easing: Quart Out / Quad Out)
-      ✓ Interactive Collapsible Drawers (Accordion Animation with Dynamic Height)
-      ✓ Reusable Micro-Components (Toggles, Sliders, Keybind Listeners, Buttons, Cards)
-      ✓ Non-Deprecated Input-Safe Dragging System (Mouse & Touch compatible)
-      ✓ Collapsed / Minimized Title Bar Mode with Smooth State Restoration
-      ✓ Stacked Toast Notification System (Bottom-Right Screen Anchor)
-      ✓ Real-Time Diagnostic Telemetry (Client FPS + Network Ping sampling)
-      ✓ Pure LocalScript - Clean Architecture, Zero External Web Dependencies
-    ================================================================================
+    PROJECT NOVA — UI OVERHAUL
+    Native Roblox / Luau UI for StarterPlayerScripts > LocalScript
+
+    Visual direction:
+      - premium futuristic desktop utility
+      - dark navy / electric blue
+      - richer hierarchy, denser information layout
+      - custom controls, status tiles, segmented navigation
+      - subtle depth, gradients, strokes and micro-interactions
+
+    NOTE:
+      This version is intentionally UI-focused. Feature callbacks are demo/state
+      callbacks; connect them to gameplay systems you own.
 --]]
 
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
-local GuiService = game:GetService("GuiService")
 
-local LocalPlayer = Players.LocalPlayer
-local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+local player = Players.LocalPlayer or Players.PlayerAdded:Wait()
+local playerGui = player:FindFirstChild("PlayerGui") or player:WaitForChild("PlayerGui", 5)
 
---------------------------------------------------------------------------------
--- 1. CONFIGURATION & DESIGN TOKENS
---------------------------------------------------------------------------------
-local CONFIG = {
-    Title = "PROJECT NOVA",
-    Version = "v2.4",
-    CategoryTag = "UNIVERSAL",
-    WindowSize = Vector2.new(520, 360),
-    MinimizedSize = Vector2.new(520, 36),
-    ToggleKey = Enum.KeyCode.RightShift,
-    AnimSpeed = {
-        Micro = 0.12,
-        Standard = 0.20,
-        Drawer = 0.25,
-        Toast = 0.28,
-    },
-    Easing = {
-        Standard = Enum.EasingStyle.Quart,
-        Snappy = Enum.EasingStyle.Quad,
-        Direction = Enum.EasingDirection.Out,
-    },
-    Theme = {
-        Background          = Color3.fromRGB(5, 8, 16),      -- Deep cosmic navy
-        SecondaryBackground = Color3.fromRGB(8, 13, 23),     -- Secondary dark
-        Panel               = Color3.fromRGB(10, 17, 30),    -- Sidebar & panels
-        Card                = Color3.fromRGB(11, 18, 31),    -- Feature cards
-        CardHover           = Color3.fromRGB(15, 25, 44),    -- Card hover
-        Border              = Color3.fromRGB(25, 43, 70),    -- Structural borders
-        BorderAccent        = Color3.fromRGB(37, 131, 255),  -- Electric blue border
-        PrimaryBlue         = Color3.fromRGB(37, 131, 255),  -- Core accent
-        BrightBlue          = Color3.fromRGB(70, 155, 255),  -- Highlight / active
-        AccentNavy          = Color3.fromRGB(12, 32, 65),     -- Selected tab backdrop
-        TextPrimary         = Color3.fromRGB(240, 245, 255), -- Crisp high-contrast
-        TextSecondary       = Color3.fromRGB(125, 140, 165), -- Technical muted
-        Success             = Color3.fromRGB(40, 210, 145),  -- Emerald green
-        Warning             = Color3.fromRGB(245, 158, 11),  -- Amber
-        Error               = Color3.fromRGB(239, 68, 68),   -- Crimson
-        TrackOff            = Color3.fromRGB(18, 25, 40),    -- Unchecked toggle track
-        TrackBorder         = Color3.fromRGB(35, 55, 85),    -- Toggle border
-        KnobWhite           = Color3.fromRGB(255, 255, 255), -- Active toggle knob
-    },
-    Typography = {
-        Header = Enum.Font.GothamBold,
-        Subheader = Enum.Font.GothamSemibold,
-        Body = Enum.Font.GothamMedium,
-        Muted = Enum.Font.Gotham,
-    }
-}
-
---------------------------------------------------------------------------------
--- 2. UTILITY BUILDERS (CORNERS, STROKES, PADDING)
---------------------------------------------------------------------------------
-local function applyCorner(instance: Instance, radius: number): UICorner
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, radius)
-    corner.Parent = instance
-    return corner
-end
-
-local function applyStroke(instance: Instance, color: Color3, thickness: number, transparency: number?): UIStroke
-    local stroke = Instance.new("UIStroke")
-    stroke.Color = color
-    stroke.Thickness = thickness or 1
-    stroke.Transparency = transparency or 0
-    stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-    stroke.Parent = instance
-    return stroke
-end
-
-local function applyPadding(instance: Instance, top: number, bottom: number, left: number, right: number): UIPadding
-    local padding = Instance.new("UIPadding")
-    padding.PaddingTop = UDim.new(0, top)
-    padding.PaddingBottom = UDim.new(0, bottom)
-    padding.PaddingLeft = UDim.new(0, left)
-    padding.PaddingRight = UDim.new(0, right)
-    padding.Parent = instance
-    return padding
-end
-
-local function tween(instance: Instance, duration: number, properties: { [string]: any }, style: Enum.EasingStyle?): Tween
-    local tweenInfo = TweenInfo.new(
-        duration or CONFIG.AnimSpeed.Standard,
-        style or CONFIG.Easing.Standard,
-        CONFIG.Easing.Direction
-    )
-    local anim = TweenService:Create(instance, tweenInfo, properties)
-    anim:Play()
-    return anim
-end
-
---------------------------------------------------------------------------------
--- 3. SAFE GUI PARENTING (DELTA EXECUTOR, ARCEUS X, CODEX, COREGUI & STUDIO)
---------------------------------------------------------------------------------
-local function GetSafeGuiParent(guiInstance: Instance?): Instance
+-- ================================================================
+-- SAFE GUI PARENT (DELTA EXECUTOR, ARCEUS X, CODEX, COREGUI & STUDIO)
+-- ================================================================
+local function GetSafeGuiParent(guiInstance)
     local targetParent = nil
 
-    -- 1. Prioritas Utama untuk Delta Mobile, Arceus X, Codex, Hydrogen: gethui()
+    -- 1. Prioritas Utama untuk Delta Mobile, Arceus X, Codex, Wave, Hydrogen: gethui()
     pcall(function()
         if typeof(gethui) == "function" then
             targetParent = gethui()
@@ -146,1712 +49,792 @@ local function GetSafeGuiParent(guiInstance: Instance?): Instance
         pcall(function()
             local coreGui = game:GetService("CoreGui")
             if coreGui then
-                local testProbe = Instance.new("Folder")
-                testProbe.Parent = coreGui
-                testProbe:Destroy()
+                local testFolder = Instance.new("Folder")
+                testFolder.Parent = coreGui
+                testFolder:Destroy()
                 targetParent = coreGui
             end
         end)
     end
 
-    -- 4. Fallback standar ke PlayerGui (Roblox Studio / Game Biasa)
+    -- 4. Fallback aman ke PlayerGui (Roblox Studio / Non-Executor)
     if not targetParent then
         pcall(function()
-            targetParent = LocalPlayer:WaitForChild("PlayerGui", 5) or (LocalPlayer and LocalPlayer.PlayerGui)
+            targetParent = player:WaitForChild("PlayerGui", 5) or (player and player.PlayerGui)
         end)
     end
 
-    return targetParent or PlayerGui
+    return targetParent or playerGui
 end
 
-local SafeParent = GetSafeGuiParent()
+local safeParent = GetSafeGuiParent()
 
--- Safely destroy pre-existing instance if re-executing
+local CONFIG = {
+    Title = "PROJECT NOVA",
+    Version = "2.5",
+    Window = Vector2.new(600, 410),
+    Sidebar = 148,
+    TitleH = 42,
+    FooterH = 25,
+    ToggleKey = Enum.KeyCode.RightShift,
+    Anim = { Fast = .12, Normal = .18, Slow = .26 },
+    Theme = {
+        Window = Color3.fromRGB(6, 10, 18),
+        Surface = Color3.fromRGB(8, 13, 23),
+        Surface2 = Color3.fromRGB(10, 17, 29),
+        Card = Color3.fromRGB(12, 20, 34),
+        Card2 = Color3.fromRGB(15, 24, 40),
+        Hover = Color3.fromRGB(18, 31, 51),
+        Blue = Color3.fromRGB(44, 132, 255),
+        Blue2 = Color3.fromRGB(80, 164, 255),
+        Cyan = Color3.fromRGB(79, 211, 255),
+        Green = Color3.fromRGB(48, 214, 151),
+        Yellow = Color3.fromRGB(242, 185, 74),
+        Red = Color3.fromRGB(239, 91, 108),
+        Text = Color3.fromRGB(241, 245, 252),
+        Text2 = Color3.fromRGB(150, 164, 184),
+        Text3 = Color3.fromRGB(89, 105, 129),
+        Border = Color3.fromRGB(26, 43, 67),
+        Border2 = Color3.fromRGB(37, 59, 89),
+        DeepBlue = Color3.fromRGB(11, 31, 62),
+        Track = Color3.fromRGB(18, 27, 42),
+        White = Color3.fromRGB(255,255,255),
+        Black = Color3.fromRGB(0,0,0),
+    },
+    Font = {
+        Regular = Enum.Font.Gotham,
+        Medium = Enum.Font.GothamMedium,
+        Semi = Enum.Font.GothamSemibold,
+        Bold = Enum.Font.GothamBold,
+    },
+}
+local T, F = CONFIG.Theme, CONFIG.Font
+
+local function New(className, props, parent)
+    local obj = Instance.new(className)
+    for k, v in pairs(props or {}) do obj[k] = v end
+    obj.Parent = parent
+    return obj
+end
+
+local function Corner(obj, px)
+    return New("UICorner", {CornerRadius = UDim.new(0, px or 6)}, obj)
+end
+
+local function Stroke(obj, color, transparency, thickness)
+    return New("UIStroke", {
+        Color = color or T.Border,
+        Transparency = transparency == nil and .2 or transparency,
+        Thickness = thickness or 1,
+        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+    }, obj)
+end
+
+local function Padding(obj, l, r, t, b)
+    return New("UIPadding", {
+        PaddingLeft = UDim.new(0,l or 0), PaddingRight = UDim.new(0,r or 0),
+        PaddingTop = UDim.new(0,t or 0), PaddingBottom = UDim.new(0,b or 0),
+    }, obj)
+end
+
+local function Layout(obj, direction, gap, horizontal, vertical)
+    return New("UIListLayout", {
+        FillDirection = direction or Enum.FillDirection.Vertical,
+        Padding = UDim.new(0, gap or 6),
+        HorizontalAlignment = horizontal or Enum.HorizontalAlignment.Left,
+        VerticalAlignment = vertical or Enum.VerticalAlignment.Top,
+        SortOrder = Enum.SortOrder.LayoutOrder,
+    }, obj)
+end
+
+local function Tween(obj, duration, props, style)
+    local info = TweenInfo.new(duration or CONFIG.Anim.Normal, style or Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+    local tw = TweenService:Create(obj, info, props)
+    tw:Play()
+    return tw
+end
+
+local function Label(parent, text, size, pos, font, color, textSize, align)
+    return New("TextLabel", {
+        BackgroundTransparency = 1,
+        Size = size or UDim2.new(1,0,0,20),
+        Position = pos or UDim2.new(),
+        Text = text or "",
+        Font = font or F.Regular,
+        TextColor3 = color or T.Text,
+        TextSize = textSize or 12,
+        TextXAlignment = align or Enum.TextXAlignment.Left,
+        TextYAlignment = Enum.TextYAlignment.Center,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+    }, parent)
+end
+
+local function Button(parent, props)
+    props.AutoButtonColor = false
+    props.BorderSizePixel = 0
+    return New("TextButton", props, parent)
+end
+
+-- ================================================================
+-- ROOT
+-- ================================================================
+-- Safely cleanup old instances from safeParent, playerGui, and CoreGui
 pcall(function()
-    local existingInSafe = SafeParent:FindFirstChild("ProjectNovaGui")
-    if existingInSafe then existingInSafe:Destroy() end
-    local existingInPlayerGui = LocalPlayer:FindFirstChild("PlayerGui") and LocalPlayer.PlayerGui:FindFirstChild("ProjectNovaGui")
-    if existingInPlayerGui then existingInPlayerGui:Destroy() end
-end)
-
-local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "ProjectNovaGui"
-ScreenGui.ResetOnSpawn = false
-ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-ScreenGui.DisplayOrder = 100
-ScreenGui.Parent = SafeParent
-
--- Apply executor-level protection if supported
-GetSafeGuiParent(ScreenGui)
-
--- Bottom-Right Toast Stack Container
-local ToastStack = Instance.new("Frame")
-ToastStack.Name = "ToastStack"
-ToastStack.Size = UDim2.new(0, 280, 1, -40)
-ToastStack.Position = UDim2.new(1, -295, 1, -20)
-ToastStack.AnchorPoint = Vector2.new(0, 1)
-ToastStack.BackgroundTransparency = 1
-ToastStack.ZIndex = 50
-ToastStack.Parent = ScreenGui
-
-local ToastListLayout = Instance.new("UIListLayout")
-ToastListLayout.SortOrder = Enum.SortOrder.LayoutOrder
-ToastListLayout.VerticalAlignment = Enum.VerticalAlignment.Bottom
-ToastListLayout.HorizontalAlignment = Enum.HorizontalAlignment.Right
-ToastListLayout.Padding = UDim.new(0, 8)
-ToastListLayout.Parent = ToastStack
-
--- System Toast Function
-local function Notify(title: string, message: string, duration: number?, statusType: string?)
-    duration = duration or 2.5
-    statusType = statusType or "Success"
-
-    local accentColor = CONFIG.Theme.PrimaryBlue
-    local iconGlyph = "✓"
-
-    if statusType == "Success" then
-        accentColor = CONFIG.Theme.Success
-        iconGlyph = "✓"
-    elseif statusType == "Warning" then
-        accentColor = CONFIG.Theme.Warning
-        iconGlyph = "!"
-    elseif statusType == "Error" then
-        accentColor = CONFIG.Theme.Error
-        iconGlyph = "✕"
-    elseif statusType == "Info" then
-        accentColor = CONFIG.Theme.BrightBlue
-        iconGlyph = "⚡"
+    local oldSafe = safeParent:FindFirstChild("ProjectNova_Overhaul")
+    if oldSafe then oldSafe:Destroy() end
+    if playerGui then
+        local oldPgui = playerGui:FindFirstChild("ProjectNova_Overhaul")
+        if oldPgui then oldPgui:Destroy() end
     end
-
-    local toastFrame = Instance.new("Frame")
-    toastFrame.Name = "Toast"
-    toastFrame.Size = UDim2.new(1, 0, 0, 50)
-    toastFrame.BackgroundColor3 = CONFIG.Theme.Card
-    toastFrame.Position = UDim2.new(1, 40, 0, 0)
-    toastFrame.BackgroundTransparency = 0.05
-    toastFrame.ClipsDescendants = true
-    toastFrame.Parent = ToastStack
-
-    applyCorner(toastFrame, 6)
-    local stroke = applyStroke(toastFrame, CONFIG.Theme.Border, 1, 0.2)
-
-    -- Left Accent Ribbon
-    local ribbon = Instance.new("Frame")
-    ribbon.Name = "Ribbon"
-    ribbon.Size = UDim2.new(0, 3, 1, 0)
-    ribbon.BackgroundColor3 = accentColor
-    ribbon.BorderSizePixel = 0
-    ribbon.Parent = toastFrame
-
-    -- Icon Emblem
-    local iconBadge = Instance.new("TextLabel")
-    iconBadge.Name = "IconBadge"
-    iconBadge.Size = UDim2.new(0, 24, 0, 24)
-    iconBadge.Position = UDim2.new(0, 12, 0.5, -12)
-    iconBadge.BackgroundColor3 = CONFIG.Theme.SecondaryBackground
-    iconBadge.TextColor3 = accentColor
-    iconBadge.Text = iconGlyph
-    iconBadge.TextSize = 13
-    iconBadge.Font = CONFIG.Typography.Header
-    iconBadge.Parent = toastFrame
-    applyCorner(iconBadge, 12)
-    applyStroke(iconBadge, accentColor, 1, 0.5)
-
-    -- Title Label
-    local titleLbl = Instance.new("TextLabel")
-    titleLbl.Name = "Title"
-    titleLbl.Size = UDim2.new(1, -50, 0, 16)
-    titleLbl.Position = UDim2.new(0, 44, 0, 8)
-    titleLbl.BackgroundTransparency = 1
-    titleLbl.Text = title
-    titleLbl.TextColor3 = CONFIG.Theme.TextPrimary
-    titleLbl.Font = CONFIG.Typography.Subheader
-    titleLbl.TextSize = 12
-    titleLbl.TextXAlignment = Enum.TextXAlignment.Left
-    titleLbl.Parent = toastFrame
-
-    -- Message Body
-    local msgLbl = Instance.new("TextLabel")
-    msgLbl.Name = "Message"
-    msgLbl.Size = UDim2.new(1, -50, 0, 14)
-    msgLbl.Position = UDim2.new(0, 44, 0, 25)
-    msgLbl.BackgroundTransparency = 1
-    msgLbl.Text = message
-    msgLbl.TextColor3 = CONFIG.Theme.TextSecondary
-    msgLbl.Font = CONFIG.Typography.Muted
-    msgLbl.TextSize = 10
-    msgLbl.TextXAlignment = Enum.TextXAlignment.Left
-    msgLbl.TextTruncate = Enum.TextTruncate.AtEnd
-    msgLbl.Parent = toastFrame
-
-    -- Entry Animation: Slide In & Fade In
-    toastFrame.Position = UDim2.new(1, 30, 0, 0)
-    tween(toastFrame, CONFIG.AnimSpeed.Toast, { Position = UDim2.new(0, 0, 0, 0) })
-    tween(stroke, CONFIG.AnimSpeed.Toast, { Color = accentColor })
-
-    -- Automatic Cleanup
-    task.delay(duration, function()
-        if toastFrame and toastFrame.Parent then
-            local exitTween = tween(toastFrame, CONFIG.AnimSpeed.Toast, {
-                Position = UDim2.new(1, 60, 0, 0),
-                BackgroundTransparency = 1
-            })
-            exitTween.Completed:Connect(function()
-                toastFrame:Destroy()
-            end)
-        end
-    end)
-end
-
---------------------------------------------------------------------------------
--- 4. MAIN WINDOW ARCHITECTURE (520x360)
---------------------------------------------------------------------------------
--- Ambient Drop Shadow frame behind the window
-local ShadowFrame = Instance.new("Frame")
-ShadowFrame.Name = "WindowShadow"
-ShadowFrame.Size = UDim2.new(0, CONFIG.WindowSize.X + 16, 0, CONFIG.WindowSize.Y + 16)
-ShadowFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
-ShadowFrame.AnchorPoint = Vector2.new(0.5, 0.5)
-ShadowFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-ShadowFrame.BackgroundTransparency = 0.55
-ShadowFrame.ZIndex = 1
-ShadowFrame.Parent = ScreenGui
-applyCorner(ShadowFrame, 12)
-
-local MainWindow = Instance.new("Frame")
-MainWindow.Name = "MainWindow"
-MainWindow.Size = UDim2.new(0, CONFIG.WindowSize.X, 0, CONFIG.WindowSize.Y)
-MainWindow.Position = UDim2.new(0.5, 0, 0.5, 0)
-MainWindow.AnchorPoint = Vector2.new(0.5, 0.5)
-MainWindow.BackgroundColor3 = CONFIG.Theme.Background
-MainWindow.ClipsDescendants = true
-MainWindow.ZIndex = 2
-MainWindow.Parent = ScreenGui
-
-applyCorner(MainWindow, 7)
-local WindowStroke = applyStroke(MainWindow, CONFIG.Theme.Border, 1, 0.25)
-
---------------------------------------------------------------------------------
--- 5. TITLE BAR COMPONENT (36px Height)
---------------------------------------------------------------------------------
-local TitleBar = Instance.new("Frame")
-TitleBar.Name = "TitleBar"
-TitleBar.Size = UDim2.new(1, 0, 0, 36)
-TitleBar.Position = UDim2.new(0, 0, 0, 0)
-TitleBar.BackgroundColor3 = CONFIG.Theme.SecondaryBackground
-TitleBar.BorderSizePixel = 0
-TitleBar.ZIndex = 10
-TitleBar.Parent = MainWindow
-
--- Bottom subtle dividing line under TitleBar
-local TitleSeparator = Instance.new("Frame")
-TitleSeparator.Name = "TitleSeparator"
-TitleSeparator.Size = UDim2.new(1, 0, 0, 1)
-TitleSeparator.Position = UDim2.new(0, 0, 1, -1)
-TitleSeparator.BackgroundColor3 = CONFIG.Theme.Border
-TitleSeparator.BorderSizePixel = 0
-TitleSeparator.ZIndex = 11
-TitleSeparator.Parent = TitleBar
-
--- Left Section: App Icon + Name + Version Badge + Universal Tag
-local TitleLeftGroup = Instance.new("Frame")
-TitleLeftGroup.Name = "LeftGroup"
-TitleLeftGroup.Size = UDim2.new(0.7, 0, 1, 0)
-TitleLeftGroup.BackgroundTransparency = 1
-TitleLeftGroup.Parent = TitleBar
-
-local TitleLayout = Instance.new("UIListLayout")
-TitleLayout.FillDirection = Enum.FillDirection.Horizontal
-TitleLayout.VerticalAlignment = Enum.VerticalAlignment.Center
-TitleLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
-TitleLayout.SortOrder = Enum.SortOrder.LayoutOrder
-TitleLayout.Padding = UDim.new(0, 8)
-TitleLayout.Parent = TitleLeftGroup
-applyPadding(TitleLeftGroup, 0, 0, 10, 0)
-
--- App Icon (Futuristic Neon Glyph)
-local AppIcon = Instance.new("TextLabel")
-AppIcon.Name = "AppIcon"
-AppIcon.Size = UDim2.new(0, 20, 0, 20)
-AppIcon.LayoutOrder = 1
-AppIcon.BackgroundColor3 = CONFIG.Theme.Panel
-AppIcon.TextColor3 = CONFIG.Theme.PrimaryBlue
-AppIcon.Text = "⚡"
-AppIcon.TextSize = 13
-AppIcon.Font = CONFIG.Typography.Header
-AppIcon.Parent = TitleLeftGroup
-applyCorner(AppIcon, 5)
-applyStroke(AppIcon, CONFIG.Theme.BorderAccent, 1, 0.4)
-
--- Application Name Label
-local AppName = Instance.new("TextLabel")
-AppName.Name = "AppName"
-AppName.Size = UDim2.new(0, 110, 1, 0)
-AppName.LayoutOrder = 2
-AppName.BackgroundTransparency = 1
-AppName.Text = CONFIG.Title
-AppName.TextColor3 = CONFIG.Theme.TextPrimary
-AppName.Font = CONFIG.Typography.Header
-AppName.TextSize = 13
-AppName.TextXAlignment = Enum.TextXAlignment.Left
-AppName.Parent = TitleLeftGroup
-
--- Version Badge
-local VersionBadge = Instance.new("Frame")
-VersionBadge.Name = "VersionBadge"
-VersionBadge.Size = UDim2.new(0, 36, 0, 18)
-VersionBadge.LayoutOrder = 3
-VersionBadge.BackgroundColor3 = CONFIG.Theme.AccentNavy
-VersionBadge.Parent = TitleLeftGroup
-applyCorner(VersionBadge, 4)
-applyStroke(VersionBadge, CONFIG.Theme.PrimaryBlue, 1, 0.4)
-
-local VersionLabel = Instance.new("TextLabel")
-VersionLabel.Name = "VersionLabel"
-VersionLabel.Size = UDim2.new(1, 0, 1, 0)
-VersionLabel.BackgroundTransparency = 1
-VersionLabel.Text = CONFIG.Version
-VersionLabel.TextColor3 = CONFIG.Theme.BrightBlue
-VersionLabel.Font = CONFIG.Typography.Subheader
-VersionLabel.TextSize = 10
-VersionLabel.Parent = VersionBadge
-
--- Category / Tag Badge (Universal)
-local CategoryBadge = Instance.new("Frame")
-CategoryBadge.Name = "CategoryBadge"
-CategoryBadge.Size = UDim2.new(0, 68, 0, 18)
-CategoryBadge.LayoutOrder = 4
-CategoryBadge.BackgroundColor3 = CONFIG.Theme.Panel
-CategoryBadge.Parent = TitleLeftGroup
-applyCorner(CategoryBadge, 4)
-applyStroke(CategoryBadge, CONFIG.Theme.Border, 1, 0.5)
-
-local CategoryLabel = Instance.new("TextLabel")
-CategoryLabel.Name = "CategoryLabel"
-CategoryLabel.Size = UDim2.new(1, 0, 1, 0)
-CategoryLabel.BackgroundTransparency = 1
-CategoryLabel.Text = CONFIG.CategoryTag
-CategoryLabel.TextColor3 = CONFIG.Theme.TextSecondary
-CategoryLabel.Font = CONFIG.Typography.Muted
-CategoryLabel.TextSize = 9
-CategoryLabel.Parent = CategoryBadge
-
--- Right Section: Window Controls (Expand, Minimize, Close)
-local WindowControls = Instance.new("Frame")
-WindowControls.Name = "WindowControls"
-WindowControls.Size = UDim2.new(0, 120, 1, 0)
-WindowControls.Position = UDim2.new(1, -120, 0, 0)
-WindowControls.BackgroundTransparency = 1
-WindowControls.ZIndex = 12
-WindowControls.Parent = TitleBar
-
-local ControlsLayout = Instance.new("UIListLayout")
-ControlsLayout.FillDirection = Enum.FillDirection.Horizontal
-ControlsLayout.VerticalAlignment = Enum.VerticalAlignment.Center
-ControlsLayout.HorizontalAlignment = Enum.HorizontalAlignment.Right
-ControlsLayout.SortOrder = Enum.SortOrder.LayoutOrder
-ControlsLayout.Padding = UDim.new(0, 6)
-ControlsLayout.Parent = WindowControls
-applyPadding(WindowControls, 0, 0, 0, 8)
-
--- Expand Button (Appears only when minimized)
-local ExpandBtn = Instance.new("TextButton")
-ExpandBtn.Name = "ExpandButton"
-ExpandBtn.Size = UDim2.new(0, 58, 0, 20)
-ExpandBtn.LayoutOrder = 1
-ExpandBtn.BackgroundColor3 = CONFIG.Theme.Panel
-ExpandBtn.TextColor3 = CONFIG.Theme.BrightBlue
-ExpandBtn.Text = "Expand"
-ExpandBtn.Font = CONFIG.Typography.Subheader
-ExpandBtn.TextSize = 10
-ExpandBtn.Visible = false
-ExpandBtn.AutoButtonColor = false
-ExpandBtn.Parent = WindowControls
-applyCorner(ExpandBtn, 4)
-applyStroke(ExpandBtn, CONFIG.Theme.BorderAccent, 1, 0.4)
-
--- Minimize Button
-local MinimizeBtn = Instance.new("TextButton")
-MinimizeBtn.Name = "MinimizeButton"
-MinimizeBtn.Size = UDim2.new(0, 24, 0, 24)
-MinimizeBtn.LayoutOrder = 2
-MinimizeBtn.BackgroundTransparency = 1
-MinimizeBtn.TextColor3 = CONFIG.Theme.TextSecondary
-MinimizeBtn.Text = "—"
-MinimizeBtn.Font = CONFIG.Typography.Subheader
-MinimizeBtn.TextSize = 12
-MinimizeBtn.AutoButtonColor = false
-MinimizeBtn.Parent = WindowControls
-applyCorner(MinimizeBtn, 4)
-
--- Close Button
-local CloseBtn = Instance.new("TextButton")
-CloseBtn.Name = "CloseButton"
-CloseBtn.Size = UDim2.new(0, 24, 0, 24)
-CloseBtn.LayoutOrder = 3
-CloseBtn.BackgroundTransparency = 1
-CloseBtn.TextColor3 = CONFIG.Theme.TextSecondary
-CloseBtn.Text = "✕"
-CloseBtn.Font = CONFIG.Typography.Subheader
-CloseBtn.TextSize = 12
-CloseBtn.AutoButtonColor = false
-CloseBtn.Parent = WindowControls
-applyCorner(CloseBtn, 4)
-
--- Button Hover Interactions
-local function bindButtonHover(btn: TextButton, defaultColor: Color3, hoverColor: Color3, hoverBg: Color3)
-    btn.MouseEnter:Connect(function()
-        tween(btn, CONFIG.AnimSpeed.Micro, {
-            TextColor3 = hoverColor,
-            BackgroundColor3 = hoverBg or CONFIG.Theme.Panel,
-            BackgroundTransparency = 0
-        })
-    end)
-    btn.MouseLeave:Connect(function()
-        tween(btn, CONFIG.AnimSpeed.Micro, {
-            TextColor3 = defaultColor,
-            BackgroundTransparency = 1
-        })
-    end)
-end
-
-bindButtonHover(MinimizeBtn, CONFIG.Theme.TextSecondary, CONFIG.Theme.TextPrimary, CONFIG.Theme.Panel)
-bindButtonHover(CloseBtn, CONFIG.Theme.TextSecondary, CONFIG.Theme.Error, Color3.fromRGB(45, 15, 20))
-bindButtonHover(ExpandBtn, CONFIG.Theme.BrightBlue, Color3.fromRGB(255, 255, 255), CONFIG.Theme.AccentNavy)
-
---------------------------------------------------------------------------------
--- 6. BODY CONTAINER (SIDEBAR + CONTENT PAGES) & STATUS BAR
---------------------------------------------------------------------------------
-local BodyContainer = Instance.new("Frame")
-BodyContainer.Name = "BodyContainer"
-BodyContainer.Size = UDim2.new(1, 0, 1, -58) -- Leaves 36px top for TitleBar, 22px bottom for StatusBar
-BodyContainer.Position = UDim2.new(0, 0, 0, 36)
-BodyContainer.BackgroundTransparency = 1
-BodyContainer.ZIndex = 3
-BodyContainer.Parent = MainWindow
-
--- Sidebar (136px width)
-local Sidebar = Instance.new("Frame")
-Sidebar.Name = "Sidebar"
-Sidebar.Size = UDim2.new(0, 136, 1, 0)
-Sidebar.Position = UDim2.new(0, 0, 0, 0)
-Sidebar.BackgroundColor3 = CONFIG.Theme.SecondaryBackground
-Sidebar.BorderSizePixel = 0
-Sidebar.ZIndex = 4
-Sidebar.Parent = BodyContainer
-
-local SidebarRightBorder = Instance.new("Frame")
-SidebarRightBorder.Name = "BorderLine"
-SidebarRightBorder.Size = UDim2.new(0, 1, 1, 0)
-SidebarRightBorder.Position = UDim2.new(1, -1, 0, 0)
-SidebarRightBorder.BackgroundColor3 = CONFIG.Theme.Border
-SidebarRightBorder.BorderSizePixel = 0
-SidebarRightBorder.Parent = Sidebar
-
-applyPadding(Sidebar, 8, 8, 8, 8)
-
-local SidebarLayout = Instance.new("UIListLayout")
-SidebarLayout.SortOrder = Enum.SortOrder.LayoutOrder
-SidebarLayout.VerticalAlignment = Enum.VerticalAlignment.Top
-SidebarLayout.Padding = UDim.new(0, 6)
-SidebarLayout.Parent = Sidebar
-
---------------------------------------------------------------------------------
--- 7. STATUS PANEL WIDGET (Sidebar Top)
---------------------------------------------------------------------------------
-local StatusPanel = Instance.new("Frame")
-StatusPanel.Name = "StatusPanel"
-StatusPanel.Size = UDim2.new(1, 0, 0, 44)
-StatusPanel.LayoutOrder = 1
-StatusPanel.BackgroundColor3 = CONFIG.Theme.Panel
-StatusPanel.Parent = Sidebar
-applyCorner(StatusPanel, 5)
-applyStroke(StatusPanel, CONFIG.Theme.Border, 1, 0.4)
-
-local StatusDot = Instance.new("Frame")
-StatusDot.Name = "StatusDot"
-StatusDot.Size = UDim2.new(0, 7, 0, 7)
-StatusDot.Position = UDim2.new(0, 10, 0, 10)
-StatusDot.BackgroundColor3 = CONFIG.Theme.Success
-StatusDot.BorderSizePixel = 0
-StatusDot.Parent = StatusPanel
-applyCorner(StatusDot, 4)
-
-local StatusHeader = Instance.new("TextLabel")
-StatusHeader.Name = "StatusHeader"
-StatusHeader.Size = UDim2.new(1, -26, 0, 12)
-StatusHeader.Position = UDim2.new(0, 22, 0, 8)
-StatusHeader.BackgroundTransparency = 1
-StatusHeader.Text = "STATUS"
-StatusHeader.TextColor3 = CONFIG.Theme.TextSecondary
-StatusHeader.Font = CONFIG.Typography.Header
-StatusHeader.TextSize = 9
-StatusHeader.TextXAlignment = Enum.TextXAlignment.Left
-StatusHeader.Parent = StatusPanel
-
-local StatusValue = Instance.new("TextLabel")
-StatusValue.Name = "StatusValue"
-StatusValue.Size = UDim2.new(1, -26, 0, 16)
-StatusValue.Position = UDim2.new(0, 22, 0, 22)
-StatusValue.BackgroundTransparency = 1
-StatusValue.Text = "Ready"
-StatusValue.TextColor3 = CONFIG.Theme.Success
-StatusValue.Font = CONFIG.Typography.Subheader
-StatusValue.TextSize = 11
-StatusValue.TextXAlignment = Enum.TextXAlignment.Left
-StatusValue.Parent = StatusPanel
-
--- Function to dynamically change status
-local function SetEngineStatus(stateName: string)
-    stateName = string.upper(stateName)
-    if stateName == "READY" then
-        StatusValue.Text = "Ready"
-        StatusValue.TextColor3 = CONFIG.Theme.Success
-        tween(StatusDot, CONFIG.AnimSpeed.Standard, { BackgroundColor3 = CONFIG.Theme.Success })
-    elseif stateName == "ACTIVE" then
-        StatusValue.Text = "Active"
-        StatusValue.TextColor3 = CONFIG.Theme.BrightBlue
-        tween(StatusDot, CONFIG.AnimSpeed.Standard, { BackgroundColor3 = CONFIG.Theme.BrightBlue })
-    elseif stateName == "DISABLED" then
-        StatusValue.Text = "Disabled"
-        StatusValue.TextColor3 = CONFIG.Theme.TextSecondary
-        tween(StatusDot, CONFIG.AnimSpeed.Standard, { BackgroundColor3 = CONFIG.Theme.TextSecondary })
-    elseif stateName == "ERROR" then
-        StatusValue.Text = "Error"
-        StatusValue.TextColor3 = CONFIG.Theme.Error
-        tween(StatusDot, CONFIG.AnimSpeed.Standard, { BackgroundColor3 = CONFIG.Theme.Error })
-    end
-end
-
---------------------------------------------------------------------------------
--- 8. STATUS BAR COMPONENT (Bottom 22px Height)
---------------------------------------------------------------------------------
-local StatusBar = Instance.new("Frame")
-StatusBar.Name = "StatusBar"
-StatusBar.Size = UDim2.new(1, 0, 0, 22)
-StatusBar.Position = UDim2.new(0, 0, 1, -22)
-StatusBar.BackgroundColor3 = CONFIG.Theme.SecondaryBackground
-StatusBar.BorderSizePixel = 0
-StatusBar.ZIndex = 10
-StatusBar.Parent = MainWindow
-
-local StatusBarTopBorder = Instance.new("Frame")
-StatusBarTopBorder.Name = "TopBorder"
-StatusBarTopBorder.Size = UDim2.new(1, 0, 0, 1)
-StatusBarTopBorder.Position = UDim2.new(0, 0, 0, 0)
-StatusBarTopBorder.BackgroundColor3 = CONFIG.Theme.Border
-StatusBarTopBorder.BorderSizePixel = 0
-StatusBarTopBorder.Parent = StatusBar
-
-local StatusMetricsLabel = Instance.new("TextLabel")
-StatusMetricsLabel.Name = "MetricsLabel"
-StatusMetricsLabel.Size = UDim2.new(0.6, 0, 1, 0)
-StatusMetricsLabel.Position = UDim2.new(0, 10, 0, 0)
-StatusMetricsLabel.BackgroundTransparency = 1
-StatusMetricsLabel.Text = "Client FPS: 60  •  Ping: 24ms"
-StatusMetricsLabel.TextColor3 = CONFIG.Theme.TextSecondary
-StatusMetricsLabel.Font = CONFIG.Typography.Muted
-StatusMetricsLabel.TextSize = 9
-StatusMetricsLabel.TextXAlignment = Enum.TextXAlignment.Left
-StatusMetricsLabel.Parent = StatusBar
-
-local EngineSignature = Instance.new("TextLabel")
-EngineSignature.Name = "EngineSignature"
-EngineSignature.Size = UDim2.new(0.4, -10, 1, 0)
-EngineSignature.Position = UDim2.new(0.6, 0, 0, 0)
-EngineSignature.BackgroundTransparency = 1
-EngineSignature.Text = "Roblox UI Engine  •  v2.4"
-EngineSignature.TextColor3 = CONFIG.Theme.TextSecondary
-EngineSignature.Font = CONFIG.Typography.Muted
-EngineSignature.TextSize = 9
-EngineSignature.TextXAlignment = Enum.TextXAlignment.Right
-EngineSignature.Parent = StatusBar
-
--- Live Telemetry Sampling loop
-local frameCount = 0
-local timeElapsed = 0
-RunService.RenderStepped:Connect(function(dt)
-    frameCount = frameCount + 1
-    timeElapsed = timeElapsed + dt
-    if timeElapsed >= 0.5 then
-        local fps = math.floor(frameCount / timeElapsed)
-        local ping = 0
-        pcall(function()
-            ping = math.floor(LocalPlayer:GetNetworkPing() * 1000)
-        end)
-        if ping <= 0 then ping = 28 end
-        StatusMetricsLabel.Text = string.format("Client FPS: %d  •  Ping: %dms", fps, ping)
-        frameCount = 0
-        timeElapsed = 0
+    local cg = game:GetService("CoreGui")
+    if cg then
+        local oldCg = cg:FindFirstChild("ProjectNova_Overhaul")
+        if oldCg then oldCg:Destroy() end
     end
 end)
 
---------------------------------------------------------------------------------
--- 9. CONTENT AREA & PAGE CONTAINER
---------------------------------------------------------------------------------
-local ContentArea = Instance.new("Frame")
-ContentArea.Name = "ContentArea"
-ContentArea.Size = UDim2.new(1, -136, 1, 0)
-ContentArea.Position = UDim2.new(0, 136, 0, 0)
-ContentArea.BackgroundTransparency = 1
-ContentArea.ClipsDescendants = true
-ContentArea.ZIndex = 5
-ContentArea.Parent = BodyContainer
+local gui = New("ScreenGui", {
+    Name = "ProjectNova_Overhaul",
+    ResetOnSpawn = false,
+    IgnoreGuiInset = true,
+    ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+    DisplayOrder = 50,
+}, safeParent)
 
-local PageContainer = Instance.new("Frame")
-PageContainer.Name = "PageContainer"
-PageContainer.Size = UDim2.new(1, 0, 1, 0)
-PageContainer.BackgroundTransparency = 1
-PageContainer.Parent = ContentArea
+-- Apply executor-level protection
+GetSafeGuiParent(gui)
 
---------------------------------------------------------------------------------
--- 10. REUSABLE UI COMPONENT FACTORIES
---------------------------------------------------------------------------------
+local backdrop = New("Frame", {
+    Size = UDim2.fromScale(1,1), BackgroundTransparency = 1,
+}, gui)
 
--- Page Scroller Factory
-local function CreatePage(pageName: string): ScrollingFrame
-    local page = Instance.new("ScrollingFrame")
-    page.Name = pageName
-    page.Size = UDim2.new(1, 0, 1, 0)
-    page.Position = UDim2.new(0, 0, 0, 0)
-    page.BackgroundTransparency = 1
-    page.ScrollBarThickness = 3
-    page.ScrollBarImageColor3 = CONFIG.Theme.PrimaryBlue
-    page.ScrollBarImageTransparency = 0.5
-    page.BorderSizePixel = 0
-    page.CanvasSize = UDim2.new(0, 0, 0, 0)
-    page.AutomaticCanvasSize = Enum.AutomaticSize.Y
-    page.Visible = false
-    page.Parent = PageContainer
+-- subtle atmospheric blobs
+local glow1 = New("Frame", {
+    Size = UDim2.fromOffset(360,360), Position = UDim2.new(.5,-180,.5,-210),
+    BackgroundColor3 = T.Blue, BackgroundTransparency = .985,
+}, backdrop)
+Corner(glow1,180)
+local glow2 = New("Frame", {
+    Size = UDim2.fromOffset(260,260), Position = UDim2.new(.5,100,.5,50),
+    BackgroundColor3 = T.Cyan, BackgroundTransparency = .99,
+}, backdrop)
+Corner(glow2,130)
 
-    local pageLayout = Instance.new("UIListLayout")
-    pageLayout.SortOrder = Enum.SortOrder.LayoutOrder
-    pageLayout.Padding = UDim.new(0, 8)
-    pageLayout.Parent = page
+local shadow = New("Frame", {
+    Size = UDim2.fromOffset(CONFIG.Window.X+22, CONFIG.Window.Y+22),
+    Position = UDim2.fromScale(.5,.5), AnchorPoint = Vector2.new(.5,.5),
+    BackgroundColor3 = T.Black, BackgroundTransparency = .48,
+    ZIndex = 2,
+}, gui)
+Corner(shadow, 12)
 
-    applyPadding(page, 10, 10, 10, 10)
-    return page
+local window = New("Frame", {
+    Size = UDim2.fromOffset(CONFIG.Window.X, CONFIG.Window.Y),
+    Position = UDim2.fromScale(.5,.5), AnchorPoint = Vector2.new(.5,.5),
+    BackgroundColor3 = T.Window, ClipsDescendants = true, ZIndex = 3,
+}, gui)
+Corner(window, 9)
+local windowStroke = Stroke(window, T.Border2, .15, 1)
+
+local windowGradient = New("UIGradient", {
+    Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(9,15,26)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(5,9,16)),
+    }),
+    Rotation = 90,
+}, window)
+
+-- top ambient wash
+local topWash = New("Frame", {
+    Size = UDim2.new(1,0,0,110), BackgroundColor3 = T.Blue, BackgroundTransparency = .965,
+    ZIndex = 4,
+}, window)
+New("UIGradient", {
+    Rotation = 90,
+    Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0,0),
+        NumberSequenceKeypoint.new(.55,.55),
+        NumberSequenceKeypoint.new(1,1),
+    }),
+}, topWash)
+
+-- ================================================================
+-- TITLE BAR
+-- ================================================================
+local titleBar = New("Frame", {
+    Size = UDim2.new(1,0,0,CONFIG.TitleH),
+    BackgroundColor3 = T.Surface,
+    BackgroundTransparency = .04,
+    ZIndex = 20,
+}, window)
+
+New("Frame", {Size=UDim2.new(1,0,0,1), Position=UDim2.new(0,0,1,-1), BackgroundColor3=T.Border, ZIndex=21}, titleBar)
+New("Frame", {Size=UDim2.new(0,150,0,1), Position=UDim2.new(0,12,1,-1), BackgroundColor3=T.Blue, BackgroundTransparency=.35, ZIndex=22}, titleBar)
+
+local titleLeft = New("Frame", {Size=UDim2.new(1,-180,1,0), BackgroundTransparency=1}, titleBar)
+Layout(titleLeft, Enum.FillDirection.Horizontal, 8, Enum.HorizontalAlignment.Left, Enum.VerticalAlignment.Center)
+Padding(titleLeft, 12,0,0,0)
+
+local appIcon = New("Frame", {Size=UDim2.fromOffset(25,25), BackgroundColor3=T.DeepBlue}, titleLeft)
+Corner(appIcon,7); Stroke(appIcon,T.Blue,.25)
+Label(appIcon,"✦",UDim2.fromScale(1,1),nil,F.Bold,T.Blue2,13,Enum.TextXAlignment.Center)
+
+Label(titleLeft,CONFIG.Title,UDim2.fromOffset(105,25),nil,F.Bold,T.Text,12)
+local ver = New("Frame", {Size=UDim2.fromOffset(38,18), BackgroundColor3=T.DeepBlue}, titleLeft)
+Corner(ver,4); Stroke(ver,T.Blue,.5)
+Label(ver,CONFIG.Version,UDim2.fromScale(1,1),nil,F.Semi,T.Blue2,8,Enum.TextXAlignment.Center)
+
+local readyPill = New("Frame", {Size=UDim2.fromOffset(62,18), BackgroundColor3=T.Card}, titleLeft)
+Corner(readyPill,9); Stroke(readyPill,T.Border,.3)
+local readyDot = New("Frame", {Size=UDim2.fromOffset(5,5), Position=UDim2.new(0,7,.5,-2), BackgroundColor3=T.Green}, readyPill)
+Corner(readyDot,3)
+Label(readyPill,"READY",UDim2.new(1,-17,1,0),UDim2.fromOffset(16,0),F.Bold,T.Green,7)
+
+local titleRight = New("Frame", {Size=UDim2.fromOffset(126,1), Position=UDim2.new(1,-134,.5,0), BackgroundTransparency=1}, titleBar)
+Layout(titleRight,Enum.FillDirection.Horizontal,4,Enum.HorizontalAlignment.Right,Enum.VerticalAlignment.Center)
+
+local function WindowBtn(text, hoverColor)
+    local b = Button(titleRight,{Size=UDim2.fromOffset(30,28),BackgroundTransparency=1,Text=text,TextColor3=T.Text3,Font=F.Semi,TextSize=13})
+    Corner(b,5)
+    b.MouseEnter:Connect(function() Tween(b,.1,{BackgroundColor3=T.Card2,BackgroundTransparency=0,TextColor3=hoverColor or T.Text}) end)
+    b.MouseLeave:Connect(function() Tween(b,.1,{BackgroundTransparency=1,TextColor3=T.Text3}) end)
+    return b
 end
-
--- Section Header
-local function CreateSectionHeader(parent: Instance, title: string, order: number?)
-    local headerFrame = Instance.new("Frame")
-    headerFrame.Name = "SectionHeader_" .. title
-    headerFrame.Size = UDim2.new(1, 0, 0, 20)
-    headerFrame.BackgroundTransparency = 1
-    headerFrame.LayoutOrder = order or 1
-    headerFrame.Parent = parent
-
-    local titleLabel = Instance.new("TextLabel")
-    titleLabel.Name = "Title"
-    titleLabel.Size = UDim2.new(0.6, 0, 1, 0)
-    titleLabel.BackgroundTransparency = 1
-    titleLabel.Text = string.upper(title)
-    titleLabel.TextColor3 = CONFIG.Theme.TextSecondary
-    titleLabel.Font = CONFIG.Typography.Header
-    titleLabel.TextSize = 10
-    titleLabel.TextXAlignment = Enum.TextXAlignment.Left
-    titleLabel.Parent = headerFrame
-
-    local decoLine = Instance.new("Frame")
-    decoLine.Name = "DecoLine"
-    decoLine.Size = UDim2.new(0.4, 0, 0, 1)
-    decoLine.Position = UDim2.new(0.6, 0, 0.5, 0)
-    decoLine.BackgroundColor3 = CONFIG.Theme.Border
-    decoLine.BorderSizePixel = 0
-    decoLine.Parent = headerFrame
-
-    return headerFrame
-end
-
--- Reusable Toggle Component
-local function CreateToggle(parent: Instance, title: string, description: string, defaultVal: boolean, callback: (boolean) -> ())
-    local isEnabled = defaultVal or false
-
-    local card = Instance.new("Frame")
-    card.Name = "ToggleCard_" .. title
-    card.Size = UDim2.new(1, 0, 0, 48)
-    card.BackgroundColor3 = CONFIG.Theme.Card
-    card.Parent = parent
-    applyCorner(card, 6)
-    local stroke = applyStroke(card, CONFIG.Theme.Border, 1, 0.4)
-
-    -- Left Text Info
-    local labelContainer = Instance.new("Frame")
-    labelContainer.Size = UDim2.new(1, -60, 1, 0)
-    labelContainer.Position = UDim2.new(0, 12, 0, 0)
-    labelContainer.BackgroundTransparency = 1
-    labelContainer.Parent = card
-
-    local titleLbl = Instance.new("TextLabel")
-    titleLbl.Name = "Title"
-    titleLbl.Size = UDim2.new(1, 0, 0, 18)
-    titleLbl.Position = UDim2.new(0, 0, 0, 8)
-    titleLbl.BackgroundTransparency = 1
-    titleLbl.Text = title
-    titleLbl.TextColor3 = CONFIG.Theme.TextPrimary
-    titleLbl.Font = CONFIG.Typography.Subheader
-    titleLbl.TextSize = 12
-    titleLbl.TextXAlignment = Enum.TextXAlignment.Left
-    titleLbl.Parent = labelContainer
-
-    local descLbl = Instance.new("TextLabel")
-    descLbl.Name = "Desc"
-    descLbl.Size = UDim2.new(1, 0, 0, 14)
-    descLbl.Position = UDim2.new(0, 0, 0, 26)
-    descLbl.BackgroundTransparency = 1
-    descLbl.Text = description
-    descLbl.TextColor3 = CONFIG.Theme.TextSecondary
-    descLbl.Font = CONFIG.Typography.Muted
-    descLbl.TextSize = 10
-    descLbl.TextXAlignment = Enum.TextXAlignment.Left
-    descLbl.Parent = labelContainer
-
-    -- Right Toggle Track & Knob
-    local toggleBtn = Instance.new("TextButton")
-    toggleBtn.Name = "ToggleBtn"
-    toggleBtn.Size = UDim2.new(0, 42, 0, 22)
-    toggleBtn.Position = UDim2.new(1, -54, 0.5, -11)
-    toggleBtn.BackgroundColor3 = isEnabled and CONFIG.Theme.PrimaryBlue or CONFIG.Theme.TrackOff
-    toggleBtn.Text = ""
-    toggleBtn.AutoButtonColor = false
-    toggleBtn.Parent = card
-    applyCorner(toggleBtn, 11)
-    local toggleStroke = applyStroke(toggleBtn, isEnabled and CONFIG.Theme.PrimaryBlue or CONFIG.Theme.TrackBorder, 1, 0.2)
-
-    local knob = Instance.new("Frame")
-    knob.Name = "Knob"
-    knob.Size = UDim2.new(0, 16, 0, 16)
-    knob.Position = isEnabled and UDim2.new(1, -19, 0.5, -8) or UDim2.new(0, 3, 0.5, -8)
-    knob.BackgroundColor3 = CONFIG.Theme.KnobWhite
-    knob.Parent = toggleBtn
-    applyCorner(knob, 8)
-
-    local function updateVisuals(active: boolean, animate: boolean)
-        local targetColor = active and CONFIG.Theme.PrimaryBlue or CONFIG.Theme.TrackOff
-        local targetStroke = active and CONFIG.Theme.PrimaryBlue or CONFIG.Theme.TrackBorder
-        local targetPos = active and UDim2.new(1, -19, 0.5, -8) or UDim2.new(0, 3, 0.5, -8)
-
-        if animate then
-            tween(toggleBtn, CONFIG.AnimSpeed.Micro, { BackgroundColor3 = targetColor })
-            tween(toggleStroke, CONFIG.AnimSpeed.Micro, { Color = targetStroke })
-            tween(knob, CONFIG.AnimSpeed.Micro, { Position = targetPos })
-        else
-            toggleBtn.BackgroundColor3 = targetColor
-            toggleStroke.Color = targetStroke
-            knob.Position = targetPos
-        end
-    end
-
-    toggleBtn.MouseButton1Click:Connect(function()
-        isEnabled = not isEnabled
-        updateVisuals(isEnabled, true)
-        if callback then
-            callback(isEnabled)
-        end
-    end)
-
-    -- Hover effect on card
-    card.MouseEnter:Connect(function()
-        tween(stroke, CONFIG.AnimSpeed.Micro, { Color = CONFIG.Theme.BorderAccent })
-        tween(card, CONFIG.AnimSpeed.Micro, { BackgroundColor3 = CONFIG.Theme.CardHover })
-    end)
-    card.MouseLeave:Connect(function()
-        tween(stroke, CONFIG.AnimSpeed.Micro, { Color = CONFIG.Theme.Border })
-        tween(card, CONFIG.AnimSpeed.Micro, { BackgroundColor3 = CONFIG.Theme.Card })
-    end)
-
-    return {
-        Card = card,
-        SetValue = function(val: boolean)
-            isEnabled = val
-            updateVisuals(isEnabled, true)
-            if callback then callback(isEnabled) end
-        end,
-        GetValue = function(): boolean
-            return isEnabled
-        end
-    }
-end
-
--- Reusable Slider Component (Power Level 0.5x - 3.0x, dynamic scrub)
-local function CreateSlider(parent: Instance, title: string, min: number, max: number, defaultVal: number, suffix: string?, callback: (number) -> ())
-    suffix = suffix or "x"
-    local currentValue = math.clamp(defaultVal or min, min, max)
-
-    local card = Instance.new("Frame")
-    card.Name = "SliderCard_" .. title
-    card.Size = UDim2.new(1, 0, 0, 52)
-    card.BackgroundColor3 = CONFIG.Theme.Card
-    card.Parent = parent
-    applyCorner(card, 6)
-    local stroke = applyStroke(card, CONFIG.Theme.Border, 1, 0.4)
-
-    -- Header row inside card (Title + Current Value dynamic read)
-    local titleLbl = Instance.new("TextLabel")
-    titleLbl.Name = "Title"
-    titleLbl.Size = UDim2.new(0.7, 0, 0, 16)
-    titleLbl.Position = UDim2.new(0, 12, 0, 8)
-    titleLbl.BackgroundTransparency = 1
-    titleLbl.Text = title
-    titleLbl.TextColor3 = CONFIG.Theme.TextPrimary
-    titleLbl.Font = CONFIG.Typography.Subheader
-    titleLbl.TextSize = 12
-    titleLbl.TextXAlignment = Enum.TextXAlignment.Left
-    titleLbl.Parent = card
-
-    local valueLbl = Instance.new("TextLabel")
-    valueLbl.Name = "ValueLabel"
-    valueLbl.Size = UDim2.new(0.3, -12, 0, 16)
-    valueLbl.Position = UDim2.new(0.7, 0, 0, 8)
-    valueLbl.BackgroundTransparency = 1
-    valueLbl.Text = string.format("%.1f%s", currentValue, suffix)
-    valueLbl.TextColor3 = CONFIG.Theme.BrightBlue
-    valueLbl.Font = CONFIG.Typography.Header
-    valueLbl.TextSize = 12
-    valueLbl.TextXAlignment = Enum.TextXAlignment.Right
-    valueLbl.Parent = card
-
-    -- Slider Track
-    local track = Instance.new("Frame")
-    track.Name = "SliderTrack"
-    track.Size = UDim2.new(1, -24, 0, 6)
-    track.Position = UDim2.new(0, 12, 0, 34)
-    track.BackgroundColor3 = CONFIG.Theme.Panel
-    track.BorderSizePixel = 0
-    track.Parent = card
-    applyCorner(track, 3)
-    applyStroke(track, CONFIG.Theme.TrackBorder, 1, 0.5)
-
-    -- Fill Bar
-    local fill = Instance.new("Frame")
-    fill.Name = "Fill"
-    local initialPercent = (currentValue - min) / (max - min)
-    fill.Size = UDim2.new(initialPercent, 0, 1, 0)
-    fill.BackgroundColor3 = CONFIG.Theme.PrimaryBlue
-    fill.BorderSizePixel = 0
-    fill.Parent = track
-    applyCorner(fill, 3)
-
-    -- Knob
-    local knob = Instance.new("Frame")
-    knob.Name = "Knob"
-    knob.Size = UDim2.new(0, 14, 0, 14)
-    knob.Position = UDim2.new(1, -7, 0.5, -7)
-    knob.BackgroundColor3 = CONFIG.Theme.KnobWhite
-    knob.Parent = fill
-    applyCorner(knob, 7)
-    applyStroke(knob, CONFIG.Theme.PrimaryBlue, 1, 0.2)
-
-    local isDragging = false
-
-    local function updateFromInput(inputPos: Vector3)
-        local trackAbsPos = track.AbsolutePosition
-        local trackAbsSize = track.AbsoluteSize
-        local relativeX = math.clamp(inputPos.X - trackAbsPos.X, 0, trackAbsSize.X)
-        local percent = relativeX / trackAbsSize.X
-
-        currentValue = min + ((max - min) * percent)
-        -- Format to 1 decimal place
-        currentValue = math.floor(currentValue * 10 + 0.5) / 10
-
-        fill.Size = UDim2.new(percent, 0, 1, 0)
-        valueLbl.Text = string.format("%.1f%s", currentValue, suffix)
-
-        if callback then
-            callback(currentValue)
-        end
-    end
-
-    track.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            isDragging = true
-            updateFromInput(input.Position)
-            tween(knob, CONFIG.AnimSpeed.Micro, { Size = UDim2.new(0, 16, 0, 16), Position = UDim2.new(1, -8, 0.5, -8) })
-        end
-    end)
-
-    UserInputService.InputChanged:Connect(function(input)
-        if isDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-            updateFromInput(input.Position)
-        end
-    end)
-
-    UserInputService.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            if isDragging then
-                isDragging = false
-                tween(knob, CONFIG.AnimSpeed.Micro, { Size = UDim2.new(0, 14, 0, 14), Position = UDim2.new(1, -7, 0.5, -7) })
-            end
-        end
-    end)
-
-    -- Hover effect
-    card.MouseEnter:Connect(function()
-        tween(stroke, CONFIG.AnimSpeed.Micro, { Color = CONFIG.Theme.BorderAccent })
-        tween(card, CONFIG.AnimSpeed.Micro, { BackgroundColor3 = CONFIG.Theme.CardHover })
-    end)
-    card.MouseLeave:Connect(function()
-        tween(stroke, CONFIG.AnimSpeed.Micro, { Color = CONFIG.Theme.Border })
-        tween(card, CONFIG.AnimSpeed.Micro, { BackgroundColor3 = CONFIG.Theme.Card })
-    end)
-
-    return {
-        Card = card,
-        SetValue = function(val: number)
-            currentValue = math.clamp(val, min, max)
-            local percent = (currentValue - min) / (max - min)
-            fill.Size = UDim2.new(percent, 0, 1, 0)
-            valueLbl.Text = string.format("%.1f%s", currentValue, suffix)
-            if callback then callback(currentValue) end
-        end,
-        GetValue = function(): number
-            return currentValue
-        end
-    }
-end
-
--- Reusable Keybind Input Component
-local function CreateKeybind(parent: Instance, title: string, defaultKey: Enum.KeyCode, callback: (Enum.KeyCode) -> ())
-    local currentKey = defaultKey or Enum.KeyCode.LeftShift
-    local isListening = false
-
-    local card = Instance.new("Frame")
-    card.Name = "KeybindCard_" .. title
-    card.Size = UDim2.new(1, 0, 0, 44)
-    card.BackgroundColor3 = CONFIG.Theme.Card
-    card.Parent = parent
-    applyCorner(card, 6)
-    local stroke = applyStroke(card, CONFIG.Theme.Border, 1, 0.4)
-
-    local titleLbl = Instance.new("TextLabel")
-    titleLbl.Name = "Title"
-    titleLbl.Size = UDim2.new(1, -130, 1, 0)
-    titleLbl.Position = UDim2.new(0, 12, 0, 0)
-    titleLbl.BackgroundTransparency = 1
-    titleLbl.Text = title
-    titleLbl.TextColor3 = CONFIG.Theme.TextPrimary
-    titleLbl.Font = CONFIG.Typography.Subheader
-    titleLbl.TextSize = 12
-    titleLbl.TextXAlignment = Enum.TextXAlignment.Left
-    titleLbl.Parent = card
-
-    local keyBtn = Instance.new("TextButton")
-    keyBtn.Name = "KeyButton"
-    keyBtn.Size = UDim2.new(0, 110, 0, 26)
-    keyBtn.Position = UDim2.new(1, -122, 0.5, -13)
-    keyBtn.BackgroundColor3 = CONFIG.Theme.Panel
-    keyBtn.Text = "[ Key: " .. currentKey.Name .. " ]"
-    keyBtn.TextColor3 = CONFIG.Theme.BrightBlue
-    keyBtn.Font = CONFIG.Typography.Subheader
-    keyBtn.TextSize = 11
-    keyBtn.AutoButtonColor = false
-    keyBtn.Parent = card
-    applyCorner(keyBtn, 4)
-    local btnStroke = applyStroke(keyBtn, CONFIG.Theme.Border, 1, 0.4)
-
-    local listenerConnection: RBXScriptConnection? = nil
-
-    local function stopListening()
-        if listenerConnection then
-            listenerConnection:Disconnect()
-            listenerConnection = nil
-        end
-        isListening = false
-        keyBtn.Text = "[ Key: " .. currentKey.Name .. " ]"
-        keyBtn.TextColor3 = CONFIG.Theme.BrightBlue
-        btnStroke.Color = CONFIG.Theme.Border
-    end
-
-    keyBtn.MouseButton1Click:Connect(function()
-        if isListening then
-            stopListening()
-            return
-        end
-
-        isListening = true
-        keyBtn.Text = "Press a key..."
-        keyBtn.TextColor3 = CONFIG.Theme.Success
-        btnStroke.Color = CONFIG.Theme.Success
-
-        listenerConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
-            if input.UserInputType == Enum.UserInputType.Keyboard then
-                if input.KeyCode == Enum.KeyCode.Escape then
-                    stopListening()
-                    return
-                end
-
-                currentKey = input.KeyCode
-                keyBtn.Text = "[ Key: " .. currentKey.Name .. " ]"
-                keyBtn.TextColor3 = CONFIG.Theme.BrightBlue
-                btnStroke.Color = CONFIG.Theme.PrimaryBlue
-
-                -- Small confirmation punch animation
-                tween(keyBtn, CONFIG.AnimSpeed.Micro, { BackgroundColor3 = CONFIG.Theme.AccentNavy })
-                task.delay(0.15, function()
-                    tween(keyBtn, CONFIG.AnimSpeed.Micro, { BackgroundColor3 = CONFIG.Theme.Panel })
-                end)
-
-                stopListening()
-                Notify("Keybind Assigned", string.format("%s bound to %s", title, currentKey.Name), 2, "Success")
-                if callback then
-                    callback(currentKey)
-                end
-            end
-        end)
-    end)
-
-    return {
-        Card = card,
-        GetKey = function() return currentKey end,
-        SetKey = function(key: Enum.KeyCode)
-            currentKey = key
-            keyBtn.Text = "[ Key: " .. currentKey.Name .. " ]"
-            if callback then callback(currentKey) end
-        end
-    }
-end
-
--- Primary Action Button
-local function CreatePrimaryButton(parent: Instance, text: string, onClick: () -> ())
-    local btn = Instance.new("TextButton")
-    btn.Name = "PrimaryBtn_" .. text
-    btn.Size = UDim2.new(1, 0, 0, 36)
-    btn.BackgroundColor3 = CONFIG.Theme.PrimaryBlue
-    btn.Text = text
-    btn.TextColor3 = CONFIG.Theme.TextPrimary
-    btn.Font = CONFIG.Typography.Header
-    btn.TextSize = 13
-    btn.AutoButtonColor = false
-    btn.Parent = parent
-    applyCorner(btn, 6)
-    local stroke = applyStroke(btn, CONFIG.Theme.BrightBlue, 1, 0.4)
-
-    btn.MouseEnter:Connect(function()
-        tween(btn, CONFIG.AnimSpeed.Micro, { BackgroundColor3 = CONFIG.Theme.BrightBlue })
-    end)
-    btn.MouseLeave:Connect(function()
-        tween(btn, CONFIG.AnimSpeed.Micro, { BackgroundColor3 = CONFIG.Theme.PrimaryBlue })
-    end)
-    btn.MouseButton1Down:Connect(function()
-        tween(btn, 0.08, { BackgroundColor3 = CONFIG.Theme.AccentNavy })
-    end)
-    btn.MouseButton1Up:Connect(function()
-        tween(btn, 0.08, { BackgroundColor3 = CONFIG.Theme.BrightBlue })
-    end)
-    btn.MouseButton1Click:Connect(function()
-        if onClick then
-            onClick()
-        end
-    end)
-
-    return btn
-end
-
--- Reusable Collapsible Accordion Drawer Card
-local function CreateCollapsibleCard(parent: Instance, title: string, versionTag: string, optionsCountText: string, statusText: string)
-    local isExpanded = false
-    local headerHeight = 38
-
-    local card = Instance.new("Frame")
-    card.Name = "CollapsibleCard_" .. title
-    card.Size = UDim2.new(1, 0, 0, headerHeight)
-    card.BackgroundColor3 = CONFIG.Theme.Card
-    card.ClipsDescendants = true
-    card.Parent = parent
-    applyCorner(card, 6)
-    local stroke = applyStroke(card, CONFIG.Theme.Border, 1, 0.3)
-
-    -- Header Clickable Hitbox
-    local headerBtn = Instance.new("TextButton")
-    headerBtn.Name = "HeaderButton"
-    headerBtn.Size = UDim2.new(1, 0, 0, headerHeight)
-    headerBtn.BackgroundTransparency = 1
-    headerBtn.Text = ""
-    headerBtn.Parent = card
-
-    -- Left Header Info: Icon + Title
-    local icon = Instance.new("TextLabel")
-    icon.Name = "Icon"
-    icon.Size = UDim2.new(0, 20, 0, 20)
-    icon.Position = UDim2.new(0, 10, 0.5, -10)
-    icon.BackgroundColor3 = CONFIG.Theme.Panel
-    icon.TextColor3 = CONFIG.Theme.PrimaryBlue
-    icon.Text = "⚡"
-    icon.TextSize = 11
-    icon.Font = CONFIG.Typography.Header
-    icon.Parent = headerBtn
-    applyCorner(icon, 4)
-    applyStroke(icon, CONFIG.Theme.Border, 1, 0.5)
-
-    local titleLbl = Instance.new("TextLabel")
-    titleLbl.Name = "Title"
-    titleLbl.Size = UDim2.new(0, 150, 1, 0)
-    titleLbl.Position = UDim2.new(0, 36, 0, 0)
-    titleLbl.BackgroundTransparency = 1
-    titleLbl.Text = title
-    titleLbl.TextColor3 = CONFIG.Theme.TextPrimary
-    titleLbl.Font = CONFIG.Typography.Subheader
-    titleLbl.TextSize = 12
-    titleLbl.TextXAlignment = Enum.TextXAlignment.Left
-    titleLbl.Parent = headerBtn
-
-    -- Right Header Badges: Version, Options Count, Status, Chevron
-    local rightGroup = Instance.new("Frame")
-    rightGroup.Name = "RightGroup"
-    rightGroup.Size = UDim2.new(0, 170, 1, 0)
-    rightGroup.Position = UDim2.new(1, -174, 0, 0)
-    rightGroup.BackgroundTransparency = 1
-    rightGroup.Parent = headerBtn
-
-    local rightLayout = Instance.new("UIListLayout")
-    rightLayout.FillDirection = Enum.FillDirection.Horizontal
-    rightLayout.VerticalAlignment = Enum.VerticalAlignment.Center
-    rightLayout.HorizontalAlignment = Enum.HorizontalAlignment.Right
-    rightLayout.SortOrder = Enum.SortOrder.LayoutOrder
-    rightLayout.Padding = UDim.new(0, 6)
-    rightLayout.Parent = rightGroup
-
-    -- Chevron indicator
-    local chevron = Instance.new("TextLabel")
-    chevron.Name = "Chevron"
-    chevron.Size = UDim2.new(0, 16, 0, 16)
-    chevron.LayoutOrder = 4
-    chevron.BackgroundTransparency = 1
-    chevron.Text = "▼"
-    chevron.TextColor3 = CONFIG.Theme.TextSecondary
-    chevron.Font = CONFIG.Typography.Subheader
-    chevron.TextSize = 10
-    chevron.Parent = rightGroup
-
-    -- Status Badge (e.g. READY)
-    local statusBadge = Instance.new("Frame")
-    statusBadge.Name = "StatusBadge"
-    statusBadge.Size = UDim2.new(0, 48, 0, 18)
-    statusBadge.LayoutOrder = 3
-    statusBadge.BackgroundColor3 = CONFIG.Theme.Panel
-    statusBadge.Parent = rightGroup
-    applyCorner(statusBadge, 4)
-    applyStroke(statusBadge, CONFIG.Theme.Success, 1, 0.6)
-
-    local statusLbl = Instance.new("TextLabel")
-    statusLbl.Size = UDim2.new(1, 0, 1, 0)
-    statusLbl.BackgroundTransparency = 1
-    statusLbl.Text = statusText or "READY"
-    statusLbl.TextColor3 = CONFIG.Theme.Success
-    statusLbl.Font = CONFIG.Typography.Header
-    statusLbl.TextSize = 9
-    statusLbl.Parent = statusBadge
-
-    -- Options Count Badge
-    local optionsBadge = Instance.new("TextLabel")
-    optionsBadge.Name = "OptionsBadge"
-    optionsBadge.Size = UDim2.new(0, 54, 0, 18)
-    optionsBadge.LayoutOrder = 2
-    optionsBadge.BackgroundTransparency = 1
-    optionsBadge.Text = optionsCountText or "3 Options"
-    optionsBadge.TextColor3 = CONFIG.Theme.TextSecondary
-    optionsBadge.Font = CONFIG.Typography.Muted
-    optionsBadge.TextSize = 9
-    optionsBadge.Parent = rightGroup
-
-    -- Version Tag
-    local verBadge = Instance.new("Frame")
-    verBadge.Name = "VerBadge"
-    verBadge.Size = UDim2.new(0, 32, 0, 18)
-    verBadge.LayoutOrder = 1
-    verBadge.BackgroundColor3 = CONFIG.Theme.AccentNavy
-    verBadge.Parent = rightGroup
-    applyCorner(verBadge, 4)
-    applyStroke(verBadge, CONFIG.Theme.BorderAccent, 1, 0.4)
-
-    local verLbl = Instance.new("TextLabel")
-    verLbl.Size = UDim2.new(1, 0, 1, 0)
-    verLbl.BackgroundTransparency = 1
-    verLbl.Text = versionTag or CONFIG.Version
-    verLbl.TextColor3 = CONFIG.Theme.BrightBlue
-    verLbl.Font = CONFIG.Typography.Subheader
-    verLbl.TextSize = 9
-    verLbl.Parent = verBadge
-
-    -- Drawer Content Inner Frame
-    local drawerContent = Instance.new("Frame")
-    drawerContent.Name = "DrawerContent"
-    drawerContent.Size = UDim2.new(1, 0, 0, 0)
-    drawerContent.Position = UDim2.new(0, 0, 0, headerHeight)
-    drawerContent.BackgroundTransparency = 1
-    drawerContent.ClipsDescendants = true
-    drawerContent.Parent = card
-
-    local drawerLayout = Instance.new("UIListLayout")
-    drawerLayout.SortOrder = Enum.SortOrder.LayoutOrder
-    drawerLayout.Padding = UDim.new(0, 8)
-    drawerLayout.Parent = drawerContent
-    applyPadding(drawerContent, 6, 10, 10, 10)
-
-    -- Auto-adjust size connection when child components are added
-    local function calculateContentHeight(): number
-        if drawerLayout and drawerLayout.AbsoluteContentSize.Y > 0 then
-            return drawerLayout.AbsoluteContentSize.Y + 20
-        end
-        local total = 20
-        for _, child in ipairs(drawerContent:GetChildren()) do
-            if child:IsA("GuiObject") and child.Visible then
-                local h = child.AbsoluteSize.Y
-                if h <= 0 then
-                    h = child.Size.Y.Offset
-                end
-                total = total + h + 8
-            end
-        end
-        return math.max(total, 220)
-    end
-
-    local function toggleDrawer(expand: boolean)
-        isExpanded = expand
-        local targetContentHeight = isExpanded and calculateContentHeight() or 0
-        local targetCardHeight = headerHeight + targetContentHeight
-
-        chevron.Text = isExpanded and "▲" or "▼"
-        chevron.TextColor3 = isExpanded and CONFIG.Theme.BrightBlue or CONFIG.Theme.TextSecondary
-        stroke.Color = isExpanded and CONFIG.Theme.BorderAccent or CONFIG.Theme.Border
-
-        tween(drawerContent, CONFIG.AnimSpeed.Drawer, { Size = UDim2.new(1, 0, 0, targetContentHeight) })
-        tween(card, CONFIG.AnimSpeed.Drawer, { Size = UDim2.new(1, 0, 0, targetCardHeight) })
-    end
-
-    headerBtn.MouseButton1Click:Connect(function()
-        toggleDrawer(not isExpanded)
-    end)
-
-    return {
-        Card = card,
-        Content = drawerContent,
-        SetExpanded = toggleDrawer,
-        IsExpanded = function() return isExpanded end,
-        RefreshHeight = function()
-            if isExpanded then
-                local targetContentHeight = calculateContentHeight()
-                drawerContent.Size = UDim2.new(1, 0, 0, targetContentHeight)
-                card.Size = UDim2.new(1, 0, 0, headerHeight + targetContentHeight)
-            end
-        end
-    }
-end
-
---------------------------------------------------------------------------------
--- 11. BUILD ALL PAGES & NAVIGATION
---------------------------------------------------------------------------------
-local Pages = {
-    Main = CreatePage("MainPage"),
-    Player = CreatePage("PlayerPage"),
-    Visual = CreatePage("VisualPage"),
-    Settings = CreatePage("SettingsPage"),
+local minBtn = WindowBtn("—",T.Text)
+local maxBtn = WindowBtn("□",T.Blue2)
+local closeBtn = WindowBtn("×",T.Red)
+
+-- ================================================================
+-- BODY / SIDEBAR
+-- ================================================================
+local body = New("Frame", {
+    Size = UDim2.new(1,0,1,-CONFIG.TitleH-CONFIG.FooterH),
+    Position = UDim2.new(0,0,0,CONFIG.TitleH),
+    BackgroundTransparency = 1,
+    ZIndex = 5,
+}, window)
+
+local sidebar = New("Frame", {
+    Size = UDim2.new(0,CONFIG.Sidebar,1,0),
+    BackgroundColor3 = T.Surface,
+    BackgroundTransparency = .08,
+    ZIndex = 6,
+}, body)
+New("Frame", {Size=UDim2.new(0,1,1,0), Position=UDim2.new(1,-1,0,0), BackgroundColor3=T.Border, ZIndex=7}, sidebar)
+Padding(sidebar,10,10,12,10)
+local sideList = Layout(sidebar,nil,5)
+
+-- mini profile / workspace block
+local workspaceCard = New("Frame", {Size=UDim2.new(1,0,0,58), BackgroundColor3=T.Card}, sidebar)
+Corner(workspaceCard,7); Stroke(workspaceCard,T.Border,.3)
+local wsAccent = New("Frame", {Size=UDim2.new(0,2,.62,0), Position=UDim2.new(0,0,.19,0), BackgroundColor3=T.Blue}, workspaceCard)
+Corner(wsAccent,1)
+Label(workspaceCard,"WORKSPACE",UDim2.new(1,-28,0,11),UDim2.fromOffset(14,8),F.Bold,T.Text3,7)
+Label(workspaceCard,"NOVA / DEFAULT",UDim2.new(1,-28,0,15),UDim2.fromOffset(14,20),F.Semi,T.Text,10)
+Label(workspaceCard,"Local session",UDim2.new(1,-28,0,12),UDim2.fromOffset(14,36),F.Regular,T.Text3,8)
+local wsDot = New("Frame",{Size=UDim2.fromOffset(6,6),Position=UDim2.new(1,-14,.5,-3),BackgroundColor3=T.Green},workspaceCard); Corner(wsDot,3)
+
+local navLabel = Label(sidebar,"NAVIGATION",UDim2.new(1,0,0,16),nil,F.Bold,T.Text3,7)
+navLabel.LayoutOrder = 2
+
+local navContainer = New("Frame", {Size=UDim2.new(1,0,0,142), BackgroundTransparency=1, LayoutOrder=3}, sidebar)
+local navLayout = Layout(navContainer,nil,4)
+
+local navData = {
+    {id="Dashboard", icon="⌂", text="Dashboard"},
+    {id="Player", icon="◉", text="Player"},
+    {id="Visual", icon="◌", text="Visual"},
+    {id="Settings", icon="⚙", text="Settings"},
 }
+local nav = {}
+local activePage = "Dashboard"
 
-local navButtons: { [string]: { Frame: TextButton, AccentBar: Frame, Label: TextLabel, Icon: TextLabel } } = {}
-local activePageName = "Main"
+local function NavButton(item)
+    local b = Button(navContainer,{Size=UDim2.new(1,0,0,31),BackgroundTransparency=1,Text=""})
+    Corner(b,6)
+    local activeBar = New("Frame",{Size=UDim2.new(0,2,.56,0),Position=UDim2.new(0,1,.22,0),BackgroundColor3=T.Blue,BackgroundTransparency=1},b); Corner(activeBar,1)
+    local icon = Label(b,item.icon,UDim2.fromOffset(28,31),UDim2.fromOffset(10,0),F.Bold,T.Text3,13,Enum.TextXAlignment.Center)
+    local text = Label(b,item.text,UDim2.new(1,-52,1,0),UDim2.fromOffset(42,0),F.Semi,T.Text2,10)
+    local dot = New("Frame",{Size=UDim2.fromOffset(4,4),Position=UDim2.new(1,-10,.5,-2),BackgroundColor3=T.Blue,BackgroundTransparency=1},b); Corner(dot,2)
+    nav[item.id] = {button=b,bar=activeBar,icon=icon,text=text,dot=dot}
+    b.MouseEnter:Connect(function()
+        if activePage ~= item.id then Tween(b,.1,{BackgroundColor3=T.Card,BackgroundTransparency=.25}); Tween(icon,.1,{TextColor3=T.Text}); Tween(text,.1,{TextColor3=T.Text}) end
+    end)
+    b.MouseLeave:Connect(function()
+        if activePage ~= item.id then Tween(b,.1,{BackgroundTransparency=1}); Tween(icon,.1,{TextColor3=T.Text3}); Tween(text,.1,{TextColor3=T.Text2}) end
+    end)
+    return b
+end
+for _, item in ipairs(navData) do NavButton(item) end
 
-local function SwitchPage(pageName: string)
-    if not Pages[pageName] then return end
+local systemCard = New("Frame", {Size=UDim2.new(1,0,0,58), BackgroundColor3=T.Card, LayoutOrder=5}, sidebar)
+Corner(systemCard,7); Stroke(systemCard,T.Border,.35)
+Label(systemCard,"SYSTEM STATUS",UDim2.new(1,-24,0,10),UDim2.fromOffset(12,8),F.Bold,T.Text3,7)
+local sysDot = New("Frame",{Size=UDim2.fromOffset(6,6),Position=UDim2.new(0,12,0,28),BackgroundColor3=T.Green},systemCard); Corner(sysDot,3)
+Label(systemCard,"Operational",UDim2.new(1,-30,0,13),UDim2.fromOffset(23,24),F.Semi,T.Text,9)
+Label(systemCard,"UI ENGINE  •  LOCAL",UDim2.new(1,-24,0,10),UDim2.fromOffset(12,40),F.Regular,T.Text3,7)
 
-    -- Reset Nav Visuals
-    for name, item in pairs(navButtons) do
-        local isActive = (name == pageName)
-        tween(item.Frame, CONFIG.AnimSpeed.Standard, {
-            BackgroundColor3 = isActive and CONFIG.Theme.AccentNavy or CONFIG.Theme.Panel,
-            BackgroundTransparency = isActive and 0 or 1
-        })
-        tween(item.AccentBar, CONFIG.AnimSpeed.Standard, {
-            BackgroundTransparency = isActive and 0 or 1
-        })
-        tween(item.Label, CONFIG.AnimSpeed.Standard, {
-            TextColor3 = isActive and CONFIG.Theme.TextPrimary or CONFIG.Theme.TextSecondary
-        })
-        tween(item.Icon, CONFIG.AnimSpeed.Standard, {
-            TextColor3 = isActive and CONFIG.Theme.BrightBlue or CONFIG.Theme.TextSecondary
-        })
-    end
+-- ================================================================
+-- CONTENT
+-- ================================================================
+local content = New("Frame", {
+    Size = UDim2.new(1,-CONFIG.Sidebar,1,0),
+    Position = UDim2.new(0,CONFIG.Sidebar,0,0),
+    BackgroundColor3 = T.Window,
+    ZIndex = 6,
+}, body)
 
-    -- Animate Page Transition (Smooth Slide + Fade)
-    local oldPage = Pages[activePageName]
-    local newPage = Pages[pageName]
+-- technical grid, kept extremely subtle
+for x=0,5 do New("Frame",{Size=UDim2.new(0,1,1,0),Position=UDim2.new(x/6,0,0,0),BackgroundColor3=T.Border,BackgroundTransparency=.94,ZIndex=6},content) end
+for y=0,5 do New("Frame",{Size=UDim2.new(1,0,0,1),Position=UDim2.new(0,0,y/6,0),BackgroundColor3=T.Border,BackgroundTransparency=.95,ZIndex=6},content) end
 
-    if oldPage and oldPage ~= newPage then
-        oldPage.Visible = false
-    end
-
-    activePageName = pageName
-    newPage.Position = UDim2.new(0, 15, 0, 0)
-    newPage.Visible = true
-
-    tween(newPage, CONFIG.AnimSpeed.Standard, {
-        Position = UDim2.new(0, 0, 0, 0)
-    })
+local pages = {}
+local pageOrder = {}
+local function Page(name)
+    local p = New("ScrollingFrame",{
+        Name=name,Size=UDim2.fromScale(1,1),BackgroundTransparency=1,BorderSizePixel=0,
+        ScrollBarThickness=2,ScrollBarImageColor3=T.Blue,ScrollBarImageTransparency=.55,
+        CanvasSize=UDim2.new(),AutomaticCanvasSize=Enum.AutomaticSize.Y,Visible=false,ZIndex=8,
+    },content)
+    Padding(p,16,16,14,14)
+    Layout(p,nil,8)
+    pages[name]=p; table.insert(pageOrder,name)
+    return p
 end
 
--- Create Nav Buttons inside Sidebar
-local navItems = {
-    { ID = "Main", Title = "MAIN", Icon = "⚡", Order = 2 },
-    { ID = "Player", Title = "PLAYER", Icon = "👤", Order = 3 },
-    { ID = "Visual", Title = "VISUAL", Icon = "👁", Order = 4 },
-    { ID = "Settings", Title = "SETTINGS", Icon = "⚙", Order = 5 },
-}
-
-for _, item in ipairs(navItems) do
-    local navBtn = Instance.new("TextButton")
-    navBtn.Name = "Nav_" .. item.ID
-    navBtn.Size = UDim2.new(1, 0, 0, 34)
-    navBtn.LayoutOrder = item.Order
-    navBtn.BackgroundColor3 = CONFIG.Theme.Panel
-    navBtn.BackgroundTransparency = 1
-    navBtn.Text = ""
-    navBtn.AutoButtonColor = false
-    navBtn.Parent = Sidebar
-    applyCorner(navBtn, 5)
-
-    -- Left Accent Stripe
-    local accentBar = Instance.new("Frame")
-    accentBar.Name = "AccentBar"
-    accentBar.Size = UDim2.new(0, 3, 0.7, 0)
-    accentBar.Position = UDim2.new(0, 2, 0.15, 0)
-    accentBar.BackgroundColor3 = CONFIG.Theme.PrimaryBlue
-    accentBar.BackgroundTransparency = 1
-    accentBar.BorderSizePixel = 0
-    accentBar.Parent = navBtn
-    applyCorner(accentBar, 2)
-
-    -- Icon
-    local iconLbl = Instance.new("TextLabel")
-    iconLbl.Name = "Icon"
-    iconLbl.Size = UDim2.new(0, 20, 1, 0)
-    iconLbl.Position = UDim2.new(0, 12, 0, 0)
-    iconLbl.BackgroundTransparency = 1
-    iconLbl.Text = item.Icon
-    iconLbl.TextColor3 = CONFIG.Theme.TextSecondary
-    iconLbl.Font = CONFIG.Typography.Header
-    iconLbl.TextSize = 13
-    iconLbl.Parent = navBtn
-
-    -- Text Label
-    local textLbl = Instance.new("TextLabel")
-    textLbl.Name = "Label"
-    textLbl.Size = UDim2.new(1, -38, 1, 0)
-    textLbl.Position = UDim2.new(0, 38, 0, 0)
-    textLbl.BackgroundTransparency = 1
-    textLbl.Text = item.Title
-    textLbl.TextColor3 = CONFIG.Theme.TextSecondary
-    textLbl.Font = CONFIG.Typography.Subheader
-    textLbl.TextSize = 11
-    textLbl.TextXAlignment = Enum.TextXAlignment.Left
-    textLbl.Parent = navBtn
-
-    navButtons[item.ID] = {
-        Frame = navBtn,
-        AccentBar = accentBar,
-        Label = textLbl,
-        Icon = iconLbl
-    }
-
-    navBtn.MouseEnter:Connect(function()
-        if activePageName ~= item.ID then
-            tween(navBtn, CONFIG.AnimSpeed.Micro, { BackgroundTransparency = 0.5, BackgroundColor3 = CONFIG.Theme.Panel })
-            tween(textLbl, CONFIG.AnimSpeed.Micro, { TextColor3 = CONFIG.Theme.TextPrimary })
-        end
-    end)
-    navBtn.MouseLeave:Connect(function()
-        if activePageName ~= item.ID then
-            tween(navBtn, CONFIG.AnimSpeed.Micro, { BackgroundTransparency = 1 })
-            tween(textLbl, CONFIG.AnimSpeed.Micro, { TextColor3 = CONFIG.Theme.TextSecondary })
-        end
-    end)
-
-    navBtn.MouseButton1Click:Connect(function()
-        SwitchPage(item.ID)
-    end)
+local function Section(parent,title,sub)
+    local f=New("Frame",{Size=UDim2.new(1,0,0,27),BackgroundTransparency=1},parent)
+    Label(f,title:upper(),UDim2.new(1,-100,0,13),UDim2.fromOffset(0,0),F.Bold,T.Text2,9)
+    if sub then Label(f,sub,UDim2.new(1,-100,0,11),UDim2.fromOffset(0,13),F.Regular,T.Text3,7) end
+    local line=New("Frame",{Size=UDim2.new(1,0,0,1),Position=UDim2.new(0,0,1,-1),BackgroundColor3=T.Border,BackgroundTransparency=.25},f)
+    New("Frame",{Size=UDim2.fromOffset(42,1),Position=UDim2.new(0,0,1,-1),BackgroundColor3=T.Blue},f)
+    return f
 end
 
---------------------------------------------------------------------------------
--- 12. POPULATE PAGES WITH PRODUCTION-GRADE FEATURES
---------------------------------------------------------------------------------
+local function PageHeader(parent,kicker,title,sub)
+    local f=New("Frame",{Size=UDim2.new(1,0,0,51),BackgroundTransparency=1},parent)
+    Label(f,kicker:upper(),UDim2.new(1,0,0,10),UDim2.fromOffset(0,0),F.Bold,T.Blue2,7)
+    Label(f,title,UDim2.new(1,-100,0,22),UDim2.fromOffset(0,9),F.Bold,T.Text,17)
+    Label(f,sub,UDim2.new(1,-20,0,14),UDim2.fromOffset(0,32),F.Regular,T.Text2,8)
+    return f
+end
 
---------------------------------------------------------------------------------
--- PAGE 1: MAIN (System Overview & Command Center)
---------------------------------------------------------------------------------
-CreateSectionHeader(Pages.Main, "SYSTEM DASHBOARD")
+local function Badge(parent,text,color,bg)
+    local b=New("Frame",{Size=UDim2.fromOffset(math.max(38,#text*6+18),18),BackgroundColor3=bg or T.Card2},parent)
+    Corner(b,9); Stroke(b,color,.5)
+    Label(b,text,UDim2.fromScale(1,1),nil,F.Bold,color,7,Enum.TextXAlignment.Center)
+    return b
+end
 
--- Welcome / Status Banner Card
-local bannerCard = Instance.new("Frame")
-bannerCard.Name = "BannerCard"
-bannerCard.Size = UDim2.new(1, 0, 0, 64)
-bannerCard.BackgroundColor3 = CONFIG.Theme.Card
-bannerCard.Parent = Pages.Main
-applyCorner(bannerCard, 6)
-applyStroke(bannerCard, CONFIG.Theme.Border, 1, 0.4)
+local function Stat(parent,label,value,detail,accent)
+    local f=New("Frame",{Size=UDim2.new(1,0,0,58),BackgroundColor3=T.Card},parent)
+    Corner(f,7); Stroke(f,T.Border,.35)
+    New("Frame",{Size=UDim2.fromOffset(2,30),Position=UDim2.new(0,0,.5,-15),BackgroundColor3=accent or T.Blue},f)
+    Label(f,label:upper(),UDim2.new(1,-18,0,9),UDim2.fromOffset(12,8),F.Bold,T.Text3,7)
+    Label(f,value,UDim2.new(1,-18,0,18),UDim2.fromOffset(12,18),F.Bold,T.Text,14)
+    Label(f,detail,UDim2.new(1,-18,0,9),UDim2.fromOffset(12,39),F.Regular,T.Text3,7)
+    return f
+end
 
-local bannerIcon = Instance.new("TextLabel")
-bannerIcon.Size = UDim2.new(0, 32, 0, 32)
-bannerIcon.Position = UDim2.new(0, 12, 0.5, -16)
-bannerIcon.BackgroundColor3 = CONFIG.Theme.AccentNavy
-bannerIcon.TextColor3 = CONFIG.Theme.BrightBlue
-bannerIcon.Text = "⚡"
-bannerIcon.TextSize = 16
-bannerIcon.Font = CONFIG.Typography.Header
-bannerIcon.Parent = bannerCard
-applyCorner(bannerIcon, 6)
-applyStroke(bannerIcon, CONFIG.Theme.BorderAccent, 1, 0.5)
+local function Toggle(parent,title,desc,default,callback)
+    local on=default==true
+    local card=New("Frame",{Size=UDim2.new(1,0,0,65),BackgroundColor3=T.Card},parent)
+    Corner(card,7); local st=Stroke(card,T.Border,.25)
+    local iconBox=New("Frame",{Size=UDim2.fromOffset(30,30),Position=UDim2.fromOffset(11,12),BackgroundColor3=T.Surface2},card)
+    Corner(iconBox,7); Stroke(iconBox,T.Border,.35)
+    Label(iconBox,"◈",UDim2.fromScale(1,1),nil,F.Bold,on and T.Blue2 or T.Text3,12,Enum.TextXAlignment.Center)
+    Label(card,title,UDim2.new(1,-105,0,15),UDim2.fromOffset(51,10),F.Semi,T.Text,10)
+    Label(card,desc,UDim2.new(1,-105,0,11),UDim2.fromOffset(51,26),F.Regular,T.Text2,8)
+    local state=Label(card,on and "ENABLED" or "STANDBY",UDim2.new(0,70,0,9),UDim2.fromOffset(51,43),F.Bold,on and T.Blue2 or T.Text3,6)
 
-local bannerTitle = Instance.new("TextLabel")
-bannerTitle.Size = UDim2.new(1, -60, 0, 18)
-bannerTitle.Position = UDim2.new(0, 52, 0, 12)
-bannerTitle.BackgroundTransparency = 1
-bannerTitle.Text = "PROJECT NOVA • ONLINE"
-bannerTitle.TextColor3 = CONFIG.Theme.TextPrimary
-bannerTitle.Font = CONFIG.Typography.Header
-bannerTitle.TextSize = 13
-bannerTitle.TextXAlignment = Enum.TextXAlignment.Left
-bannerTitle.Parent = bannerCard
-
-local bannerSub = Instance.new("TextLabel")
-bannerSub.Size = UDim2.new(1, -60, 0, 14)
-bannerSub.Position = UDim2.new(0, 52, 0, 34)
-bannerSub.BackgroundTransparency = 1
-bannerSub.Text = "High-performance Luau utility engine running. All subsystems nominal."
-bannerSub.TextColor3 = CONFIG.Theme.TextSecondary
-bannerSub.Font = CONFIG.Typography.Muted
-bannerSub.TextSize = 10
-bannerSub.TextXAlignment = Enum.TextXAlignment.Left
-bannerSub.Parent = bannerCard
-
-CreateSectionHeader(Pages.Main, "QUICK ACTIONS")
-
-CreatePrimaryButton(Pages.Main, "⚡ Activate Feature", function()
-    SetEngineStatus("ACTIVE")
-    Notify("Core Engine", "Feature successfully engaged and synchronized.", 2.5, "Success")
-end)
-
-CreateToggle(Pages.Main, "Telemetry Monitor", "Collects real-time client performance and tick variance", true, function(state)
-    Notify("Telemetry", state and "Diagnostic tracing started." or "Diagnostic tracing halted.", 2, "Info")
-end)
-
---------------------------------------------------------------------------------
--- PAGE 2: PLAYER (Specification Section 8 & Components)
---------------------------------------------------------------------------------
-CreateSectionHeader(Pages.Player, "MOVEMENT")
-
--- Feature Card 1: Speed Boost
-CreateToggle(Pages.Player, "Speed Boost", "Adjust movement speed", false, function(state)
-    Notify("Speed Boost", state and "Movement speed boost activated." or "Movement speed restored to normal.", 2, "Success")
-end)
-
--- Feature Card 2: Expandable Panel "[ Movement Extras ]"
-local movementDrawer = CreateCollapsibleCard(Pages.Player, "[ Movement Extras ]", "v2.4", "3 Options", "READY")
-
--- Sub-header inside expandable panel
-local subHeader = Instance.new("TextLabel")
-subHeader.Name = "DrawerSubheader"
-subHeader.Size = UDim2.new(1, 0, 0, 18)
-subHeader.BackgroundTransparency = 1
-subHeader.Text = "⚙ UI KONTROL FITUR TAMBAHAN • INTERACTIVE DRAWER"
-subHeader.TextColor3 = CONFIG.Theme.BrightBlue
-subHeader.Font = CONFIG.Typography.Header
-subHeader.TextSize = 10
-subHeader.TextXAlignment = Enum.TextXAlignment.Left
-subHeader.Parent = movementDrawer.Content
-
--- Auto-Sprint Booster
-CreateToggle(movementDrawer.Content, "Auto-Sprint Booster", "Automatically activates sprint while moving", false, function(state)
-    Notify("Auto-Sprint", state and "Auto-Sprint Booster armed." or "Auto-Sprint Booster disarmed.", 2, "Info")
-end)
-
--- Bunny Hop Simulation
-CreateToggle(movementDrawer.Content, "Bunny Hop Simulation", "Automatic jump timing", false, function(state)
-    Notify("Bunny Hop", state and "Jump cadence timing engaged." or "Jump cadence timing disengaged.", 2, "Info")
-end)
-
--- Reusable Slider Component (Power Level 0.5x - 3.0x)
-CreateSlider(movementDrawer.Content, "Power Level", 0.5, 3.0, 1.5, "x", function(value)
-    -- Value updated
-end)
-
--- Reusable Keybind Component (Activation Keybind)
-CreateKeybind(movementDrawer.Content, "Activation Keybind", Enum.KeyCode.LeftShift, function(newKey)
-    -- Callback upon key update
-end)
-
---------------------------------------------------------------------------------
--- PAGE 3: VISUAL (ESP, Crosshair, FOV)
---------------------------------------------------------------------------------
-CreateSectionHeader(Pages.Visual, "RENDER & VISUALS")
-
-CreateToggle(Pages.Visual, "Player Highlights (ESP)", "Draw tactical silhouette contours around player models", false, function(state)
-    Notify("Tactical ESP", state and "Entity highlight shaders engaged." or "Entity highlight shaders disengaged.", 2, "Success")
-end)
-
-CreateSlider(Pages.Visual, "Field of View (FOV)", 70, 120, 90, "°", function(fov)
-    local camera = workspace.CurrentCamera
-    if camera then
-        camera.FieldOfView = fov
+    local btn=Button(card,{Size=UDim2.fromOffset(42,22),Position=UDim2.new(1,-55,.5,-11),BackgroundColor3=on and T.Blue or T.Track,Text=""})
+    Corner(btn,11); local bst=Stroke(btn,on and T.Blue2 or T.Border,.25)
+    local knob=New("Frame",{Size=UDim2.fromOffset(16,16),Position=on and UDim2.new(1,-19,.5,-8) or UDim2.fromOffset(3,3),BackgroundColor3=T.White},btn); Corner(knob,8)
+    local function set(v,animate)
+        on=v
+        state.Text=on and "ENABLED" or "STANDBY"; state.TextColor3=on and T.Blue2 or T.Text3
+        local pos=on and UDim2.new(1,-19,.5,-8) or UDim2.fromOffset(3,3)
+        if animate then Tween(btn,.14,{BackgroundColor3=on and T.Blue or T.Track}); Tween(knob,.14,{Position=pos}); Tween(bst,.14,{Color=on and T.Blue2 or T.Border}); Tween(iconBox,.14,{BackgroundColor3=on and T.DeepBlue or T.Surface2}) else btn.BackgroundColor3=on and T.Blue or T.Track; knob.Position=pos end
+        if callback then callback(on) end
     end
-end)
-
-CreateToggle(Pages.Visual, "Precision Crosshair", "Renders a high-contrast HUD reticle on screen center", false, function(state)
-    Notify("HUD Reticle", state and "Overlay reticle enabled." or "Overlay reticle disabled.", 2, "Info")
-end)
-
---------------------------------------------------------------------------------
--- PAGE 4: SETTINGS (Configuration, Keybinds, Diagnostics)
---------------------------------------------------------------------------------
-CreateSectionHeader(Pages.Settings, "CONFIGURATION & UTILITY")
-
-CreateKeybind(Pages.Settings, "Toggle UI Menu Key", CONFIG.ToggleKey, function(newKey)
-    CONFIG.ToggleKey = newKey
-end)
-
-CreateToggle(Pages.Settings, "Sound Feedback", "Plays subtle audio ticks on UI interaction", true, function(state)
-    Notify("Audio Feedback", state and "Interactive SFX enabled." or "Interactive SFX muted.", 2, "Info")
-end)
-
-CreatePrimaryButton(Pages.Settings, "↺ Reset All Configurations", function()
-    SetEngineStatus("READY")
-    Notify("System Reset", "All utility configurations restored to defaults.", 2.5, "Warning")
-end)
-
--- Diagnostics Info Card
-local diagCard = Instance.new("Frame")
-diagCard.Name = "DiagnosticsCard"
-diagCard.Size = UDim2.new(1, 0, 0, 56)
-diagCard.BackgroundColor3 = CONFIG.Theme.Card
-diagCard.Parent = Pages.Settings
-applyCorner(diagCard, 6)
-applyStroke(diagCard, CONFIG.Theme.Border, 1, 0.4)
-
-local diagText = Instance.new("TextLabel")
-diagText.Size = UDim2.new(1, -20, 1, -12)
-diagText.Position = UDim2.new(0, 10, 0, 6)
-diagText.BackgroundTransparency = 1
-diagText.Text = "Luau Engine Architecture: Native x64\nPlatform Detection: " .. (UserInputService.TouchEnabled and "Mobile / Touch Device" or "Desktop (Keyboard & Mouse)") .. "\nRender Pipeline: Roblox Direct3D / Metal / Vulkan"
-diagText.TextColor3 = CONFIG.Theme.TextSecondary
-diagText.Font = CONFIG.Typography.Muted
-diagText.TextSize = 10
-diagText.TextXAlignment = Enum.TextXAlignment.Left
-diagText.TextYAlignment = Enum.TextYAlignment.Center
-diagText.Parent = diagCard
-
---------------------------------------------------------------------------------
--- 13. DRAGGING SYSTEM (Safe, Non-Deprecated, Mouse & Touch Supported)
---------------------------------------------------------------------------------
-local function SetupDragging(dragHandle: GuiObject, targetWindow: GuiObject, shadowTarget: GuiObject?)
-    local dragging = false
-    local dragInput = nil
-    local dragStart = nil
-    local startPos = nil
-
-    dragHandle.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = true
-            dragStart = input.Position
-            startPos = targetWindow.Position
-
-            input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then
-                    dragging = false
-                end
-            end)
-        end
-    end)
-
-    dragHandle.InputChanged:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-            dragInput = input
-        end
-    end)
-
-    UserInputService.InputChanged:Connect(function(input)
-        if input == dragInput and dragging then
-            local delta = input.Position - dragStart
-            local targetPos = UDim2.new(
-                startPos.X.Scale,
-                startPos.X.Offset + delta.X,
-                startPos.Y.Scale,
-                startPos.Y.Offset + delta.Y
-            )
-            targetWindow.Position = targetPos
-            if shadowTarget then
-                shadowTarget.Position = targetPos
-            end
-        end
-    end)
+    btn.MouseButton1Click:Connect(function() set(not on,true) end)
+    card.MouseEnter:Connect(function() Tween(card,.1,{BackgroundColor3=T.Hover}); Tween(st,.1,{Color=T.Border2}) end)
+    card.MouseLeave:Connect(function() Tween(card,.1,{BackgroundColor3=T.Card}); Tween(st,.1,{Color=T.Border}) end)
+    return {Card=card,Get=function() return on end,Set=function(v) set(v,true) end}
 end
 
-SetupDragging(TitleBar, MainWindow, ShadowFrame)
+local function Slider(parent,title,desc,mn,mx,default,suffix,callback)
+    local value=math.clamp(default or mn,mn,mx)
+    local card=New("Frame",{Size=UDim2.new(1,0,0,72),BackgroundColor3=T.Card},parent); Corner(card,7); local st=Stroke(card,T.Border,.25)
+    Label(card,title,UDim2.new(.65,0,0,15),UDim2.fromOffset(12,9),F.Semi,T.Text,10)
+    Label(card,desc,UDim2.new(.65,0,0,10),UDim2.fromOffset(12,25),F.Regular,T.Text2,7)
+    local val=Label(card,string.format("%.1f%s",value,suffix or ""),UDim2.new(0,70,0,16),UDim2.new(1,-82,0,9),F.Bold,T.Blue2,10,Enum.TextXAlignment.Right)
+    local track=New("Frame",{Size=UDim2.new(1,-24,0,5),Position=UDim2.fromOffset(12,51),BackgroundColor3=T.Track},card); Corner(track,3); Stroke(track,T.Border,.45)
+    local p=(value-mn)/(mx-mn)
+    local fill=New("Frame",{Size=UDim2.new(p,0,1,0),BackgroundColor3=T.Blue},track); Corner(fill,3)
+    local knob=New("Frame",{Size=UDim2.fromOffset(12,12),Position=UDim2.new(p,-6,.5,-6),BackgroundColor3=T.White},track); Corner(knob,6); Stroke(knob,T.Blue2,.25)
+    local drag=false
+    local function setFromX(x)
+        local px=math.clamp((x-track.AbsolutePosition.X)/track.AbsoluteSize.X,0,1)
+        value=math.floor((mn+(mx-mn)*px)*10+.5)/10
+        fill.Size=UDim2.new(px,0,1,0); knob.Position=UDim2.new(px,-6,.5,-6); val.Text=string.format("%.1f%s",value,suffix or "")
+        if callback then callback(value) end
+    end
+    track.InputBegan:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then drag=true; setFromX(i.Position.X) end end)
+    UserInputService.InputChanged:Connect(function(i) if drag and (i.UserInputType==Enum.UserInputType.MouseMovement or i.UserInputType==Enum.UserInputType.Touch) then setFromX(i.Position.X) end end)
+    UserInputService.InputEnded:Connect(function(i) if drag and (i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch) then drag=false end end)
+    card.MouseEnter:Connect(function() Tween(card,.1,{BackgroundColor3=T.Hover}); Tween(st,.1,{Color=T.Border2}); Tween(knob,.1,{Size=UDim2.fromOffset(15,15)}) end)
+    card.MouseLeave:Connect(function() Tween(card,.1,{BackgroundColor3=T.Card}); Tween(st,.1,{Color=T.Border}); Tween(knob,.1,{Size=UDim2.fromOffset(12,12)}) end)
+    return {Card=card,Get=function() return value end}
+end
 
---------------------------------------------------------------------------------
--- 14. MINIMIZE / COLLAPSED MODE & TOGGLE SYSTEM
---------------------------------------------------------------------------------
-local isMinimized = false
-local isWindowVisible = true
-
-local function SetMinimized(minimized: boolean)
-    isMinimized = minimized
-    if isMinimized then
-        -- Collapse window to small title bar
-        tween(BodyContainer, CONFIG.AnimSpeed.Standard, { BackgroundTransparency = 1 })
-        BodyContainer.Visible = false
-        StatusBar.Visible = false
-        ExpandBtn.Visible = true
-
-        tween(MainWindow, CONFIG.AnimSpeed.Drawer, { Size = UDim2.new(0, CONFIG.MinimizedSize.X, 0, CONFIG.MinimizedSize.Y) })
-        tween(ShadowFrame, CONFIG.AnimSpeed.Drawer, { Size = UDim2.new(0, CONFIG.MinimizedSize.X + 16, 0, CONFIG.MinimizedSize.Y + 16) })
-    else
-        -- Restore full window
-        ExpandBtn.Visible = false
-        local expandTween = tween(MainWindow, CONFIG.AnimSpeed.Drawer, { Size = UDim2.new(0, CONFIG.WindowSize.X, 0, CONFIG.WindowSize.Y) })
-        tween(ShadowFrame, CONFIG.AnimSpeed.Drawer, { Size = UDim2.new(0, CONFIG.WindowSize.X + 16, 0, CONFIG.WindowSize.Y + 16) })
-
-        expandTween.Completed:Connect(function()
-            if not isMinimized then
-                BodyContainer.Visible = true
-                StatusBar.Visible = true
+local function Keybind(parent,title,defaultKey,callback)
+    local key=defaultKey or Enum.KeyCode.LeftShift
+    local listening=false
+    local card=New("Frame",{Size=UDim2.new(1,0,0,56),BackgroundColor3=T.Card},parent); Corner(card,7); Stroke(card,T.Border,.3)
+    Label(card,title,UDim2.new(.55,0,0,15),UDim2.fromOffset(12,9),F.Semi,T.Text,10)
+    Label(card,"Click to capture a new key",UDim2.new(.55,0,0,11),UDim2.fromOffset(12,25),F.Regular,T.Text3,7)
+    local b=Button(card,{Size=UDim2.fromOffset(104,30),Position=UDim2.new(1,-116,.5,-15),BackgroundColor3=T.Surface2,Text=key.Name,TextColor3=T.Blue2,Font=F.Semi,TextSize=9}); Corner(b,5); local bs=Stroke(b,T.Border,.2)
+    local conn
+    local function stop()
+        if conn then conn:Disconnect(); conn=nil end
+        listening=false; b.Text=key.Name; b.TextColor3=T.Blue2; bs.Color=T.Border
+    end
+    b.MouseButton1Click:Connect(function()
+        if listening then stop(); return end
+        listening=true; b.Text="PRESS KEY"; b.TextColor3=T.Green; bs.Color=T.Green
+        conn=UserInputService.InputBegan:Connect(function(i)
+            if i.UserInputType==Enum.UserInputType.Keyboard then
+                if i.KeyCode==Enum.KeyCode.Escape then stop(); return end
+                key=i.KeyCode; stop(); if callback then callback(key) end
             end
         end)
-    end
+    end)
+    return {Card=card,Get=function() return key end}
 end
 
-MinimizeBtn.MouseButton1Click:Connect(function()
-    SetMinimized(not isMinimized)
+local function PrimaryButton(parent,text,callback)
+    local b=Button(parent,{Size=UDim2.new(1,0,0,38),BackgroundColor3=T.Blue,Text="✦   "..text,TextColor3=T.White,Font=F.Bold,TextSize=10}); Corner(b,6); local s=Stroke(b,T.Blue2,.2)
+    New("Frame",{Size=UDim2.new(1,-2,0,1),Position=UDim2.fromOffset(1,1),BackgroundColor3=T.White,BackgroundTransparency=.86},b)
+    b.MouseEnter:Connect(function() Tween(b,.1,{BackgroundColor3=T.Blue2}); Tween(s,.1,{Transparency=0}) end)
+    b.MouseLeave:Connect(function() Tween(b,.1,{BackgroundColor3=T.Blue}); Tween(s,.1,{Transparency=.2}) end)
+    b.MouseButton1Down:Connect(function() Tween(b,.06,{BackgroundColor3=T.DeepBlue}) end)
+    b.MouseButton1Up:Connect(function() Tween(b,.06,{BackgroundColor3=T.Blue2}) end)
+    b.MouseButton1Click:Connect(function() if callback then callback() end end)
+    return b
+end
+
+local function MiniCard(parent,title,value,detail,accent)
+    local f=New("Frame",{Size=UDim2.new(1,0,0,48),BackgroundColor3=T.Card},parent); Corner(f,6); Stroke(f,T.Border,.4)
+    New("Frame",{Size=UDim2.fromOffset(3,22),Position=UDim2.new(0,0,.5,-11),BackgroundColor3=accent or T.Blue},f)
+    Label(f,title:upper(),UDim2.new(.6,0,0,9),UDim2.fromOffset(12,7),F.Bold,T.Text3,6)
+    Label(f,value,UDim2.new(.4,-12,0,15),UDim2.new(.6,0,0,6),F.Bold,accent or T.Text,10,Enum.TextXAlignment.Right)
+    Label(f,detail,UDim2.new(1,-24,0,9),UDim2.fromOffset(12,28),F.Regular,T.Text2,7)
+    return f
+end
+
+local function Drawer(parent,title,subtitle)
+    local expanded=true
+    local card=New("Frame",{Size=UDim2.new(1,0,0,48),BackgroundColor3=T.Card,ClipsDescendants=true},parent); Corner(card,7); local s=Stroke(card,T.Border,.25)
+    local head=Button(card,{Size=UDim2.new(1,0,0,48),BackgroundTransparency=1,Text=""})
+    local icon=New("Frame",{Size=UDim2.fromOffset(28,28),Position=UDim2.fromOffset(10,10),BackgroundColor3=T.DeepBlue},head); Corner(icon,7); Stroke(icon,T.Blue,.35); Label(icon,"⌁",UDim2.fromScale(1,1),nil,F.Bold,T.Blue2,14,Enum.TextXAlignment.Center)
+    Label(head,title,UDim2.new(.55,0,0,14),UDim2.fromOffset(48,8),F.Semi,T.Text,10)
+    Label(head,subtitle,UDim2.new(.55,0,0,10),UDim2.fromOffset(48,25),F.Regular,T.Text2,7)
+    local badge=Badge(head,"READY",T.Green,T.Surface2); badge.Position=UDim2.new(1,-88,.5,-9)
+    local chev=Label(head,"⌃",UDim2.fromOffset(18,20),UDim2.new(1,-25,.5,-10),F.Bold,T.Blue2,11,Enum.TextXAlignment.Center)
+    local body=New("Frame",{Size=UDim2.new(1,-20,0,0),Position=UDim2.fromOffset(10,54),BackgroundTransparency=1,ClipsDescendants=true},card)
+    local bl=Layout(body,nil,6)
+    local function refresh()
+        local h=bl.AbsoluteContentSize.Y+2
+        body.Size=UDim2.new(1,-20,0,h)
+        Tween(card,.22,{Size=UDim2.new(1,0,0,(expanded and 58+h or 48))})
+        chev.Text=expanded and "⌃" or "⌄"; s.Color=expanded and T.Border2 or T.Border
+    end
+    head.MouseButton1Click:Connect(function() expanded=not expanded; refresh() end)
+    return {Card=card,Body=body,Refresh=refresh}
+end
+
+-- ================================================================
+-- TOASTS
+-- ================================================================
+local toastLayer=New("Frame",{Size=UDim2.fromOffset(310,260),Position=UDim2.new(1,-326,1,-38),AnchorPoint=Vector2.new(0,1),BackgroundTransparency=1,ZIndex=100},gui)
+local toastLayout=Layout(toastLayer,nil,7,Enum.HorizontalAlignment.Right,Enum.VerticalAlignment.Bottom)
+local function Notify(title,message,color)
+    color=color or T.Blue2
+    local f=New("Frame",{Size=UDim2.new(1,0,0,62),BackgroundColor3=T.Card,BackgroundTransparency=.02,ClipsDescendants=true},toastLayer); Corner(f,7); local s=Stroke(f,T.Border,.2)
+    New("Frame",{Size=UDim2.fromOffset(3,62),BackgroundColor3=color},f)
+    local ic=New("Frame",{Size=UDim2.fromOffset(28,28),Position=UDim2.fromOffset(12,17),BackgroundColor3=T.Surface2},f); Corner(ic,14); Stroke(ic,color,.45); Label(ic,"✓",UDim2.fromScale(1,1),nil,F.Bold,color,11,Enum.TextXAlignment.Center)
+    Label(f,title:upper(),UDim2.new(1,-82,0,13),UDim2.fromOffset(50,10),F.Bold,T.Text,9)
+    Label(f,message,UDim2.new(1,-64,0,22),UDim2.fromOffset(50,27),F.Regular,T.Text2,8)
+    Label(f,"NOW",UDim2.fromOffset(28,10),UDim2.new(1,-38,0,8),F.Bold,T.Text3,6,Enum.TextXAlignment.Right)
+    f.Position=UDim2.new(1,25,0,0)
+    Tween(f,.22,{Position=UDim2.new(0,0,0,0)})
+    task.delay(2.6,function()
+        if f.Parent then
+            local out=Tween(f,.2,{Position=UDim2.new(1,25,0,0),BackgroundTransparency=1})
+            out.Completed:Connect(function() if f.Parent then f:Destroy() end end)
+        end
+    end)
+end
+
+-- ================================================================
+-- PAGES
+-- ================================================================
+local dashboard=Page("Dashboard")
+PageHeader(dashboard,"OVERVIEW","Control Center","Quick access to your active systems and session state.")
+
+local statRow=New("Frame",{Size=UDim2.new(1,0,0,58),BackgroundTransparency=1},dashboard); local statGrid=New("UIGridLayout",{CellPadding=UDim2.fromOffset(7,0),CellSize=UDim2.new(1/3,-5,0,58),FillDirectionMaxCells=3,SortOrder=Enum.SortOrder.LayoutOrder},statRow)
+Stat(statRow,"Status","READY","All systems nominal",T.Green)
+Stat(statRow,"Modules","04","Loaded components",T.Blue2)
+Stat(statRow,"Session","LOCAL","Secure client state",T.Cyan)
+
+Section(dashboard,"Quick Controls","Primary interface actions")
+local dashGrid=New("Frame",{Size=UDim2.new(1,0,0,65),BackgroundTransparency=1},dashboard); New("UIGridLayout",{CellPadding=UDim2.fromOffset(8,0),CellSize=UDim2.new(.5,-4,1,0),FillDirectionMaxCells=2},dashGrid)
+local actionCard=New("Frame",{BackgroundColor3=T.Card},dashGrid); Corner(actionCard,7); Stroke(actionCard,T.Border,.3)
+Label(actionCard,"CORE ENGINE",UDim2.new(1,-24,0,10),UDim2.fromOffset(12,9),F.Bold,T.Text3,7)
+Label(actionCard,"Ready to activate",UDim2.new(1,-24,0,15),UDim2.fromOffset(12,21),F.Semi,T.Text,10)
+local act=Button(actionCard,{Size=UDim2.fromOffset(72,24),Position=UDim2.new(1,-84,.5,-12),BackgroundColor3=T.Blue,Text="ACTIVATE",TextColor3=T.White,Font=F.Bold,TextSize=7}); Corner(act,5)
+act.MouseEnter:Connect(function() Tween(act,.1,{BackgroundColor3=T.Blue2}) end); act.MouseLeave:Connect(function() Tween(act,.1,{BackgroundColor3=T.Blue}) end)
+act.MouseButton1Click:Connect(function() Notify("Core Engine","Interface state synchronized.",T.Green) end)
+
+local quick=New("Frame",{BackgroundColor3=T.Card},dashGrid); Corner(quick,7); Stroke(quick,T.Border,.3)
+Label(quick,"TELEMETRY",UDim2.new(1,-24,0,10),UDim2.fromOffset(12,9),F.Bold,T.Text3,7)
+Label(quick,"Live client metrics",UDim2.new(1,-24,0,15),UDim2.fromOffset(12,21),F.Semi,T.Text,10)
+local qdot=New("Frame",{Size=UDim2.fromOffset(6,6),Position=UDim2.new(1,-84,.5,-3),BackgroundColor3=T.Green},quick); Corner(qdot,3)
+Label(quick,"ACTIVE",UDim2.fromOffset(62,12),UDim2.new(1,-74,.5,-6),F.Bold,T.Green,7,Enum.TextXAlignment.Right)
+
+Section(dashboard,"Activity","Recent interface events")
+local activity=New("Frame",{Size=UDim2.new(1,0,0,82),BackgroundColor3=T.Card},dashboard); Corner(activity,7); Stroke(activity,T.Border,.3)
+local entries={{"SYSTEM","UI engine initialized","now",T.Green},{"PROFILE","Default profile loaded","now",T.Blue2},{"INPUT","RightShift toggle registered","ready",T.Cyan}}
+for i,e in ipairs(entries) do
+    local y=(i-1)*26
+    local dot=New("Frame",{Size=UDim2.fromOffset(5,5),Position=UDim2.new(0,12,0,y+10),BackgroundColor3=e[4]},activity); Corner(dot,3)
+    Label(activity,e[1],UDim2.fromOffset(52,10),UDim2.fromOffset(24,y+5),F.Bold,T.Text3,6)
+    Label(activity,e[2],UDim2.new(1,-130,0,12),UDim2.fromOffset(78,y+4),F.Regular,T.Text2,8)
+    Label(activity,e[3],UDim2.fromOffset(40,10),UDim2.new(1,-52,0,y+5),F.Regular,T.Text3,6,Enum.TextXAlignment.Right)
+    if i<3 then New("Frame",{Size=UDim2.new(1,-24,0,1),Position=UDim2.new(0,12,0,y+25),BackgroundColor3=T.Border,BackgroundTransparency=.55},activity) end
+end
+
+local playerPage=Page("Player")
+PageHeader(playerPage,"PLAYER","Movement Lab","Tune local movement presentation and control states.")
+Section(playerPage,"Movement","Core movement controls")
+Toggle(playerPage,"Speed Boost","Movement multiplier control",false,function(v) Notify("Speed Boost",v and "Enabled" or "Disabled",v and T.Green or T.Text2) end)
+local drawer=Drawer(playerPage,"Movement Extras","Advanced movement controls • 3 options")
+Toggle(drawer.Body,"Auto-Sprint Booster","Automatically arms sprint while moving",true,function(v) Notify("Auto-Sprint",v and "Armed" or "Disarmed",T.Blue2) end)
+Toggle(drawer.Body,"Bunny Hop Simulation","Consistent jump timing for local testing",false,function(v) Notify("Bunny Hop",v and "Enabled" or "Disabled",T.Blue2) end)
+Slider(drawer.Body,"Power Level","Adjust feature intensity",.5,3,1.5,"x",function() end)
+Keybind(drawer.Body,"Activation Keybind",Enum.KeyCode.LeftShift,function(k) Notify("Keybind Updated",k.Name,T.Cyan) end)
+task.defer(drawer.Refresh)
+Section(playerPage,"Session","Compact player telemetry")
+local sessionRow=New("Frame",{Size=UDim2.new(1,0,0,48),BackgroundTransparency=1},playerPage); New("UIGridLayout",{CellPadding=UDim2.fromOffset(7,0),CellSize=UDim2.new(1/3,-5,0,48),FillDirectionMaxCells=3},sessionRow)
+MiniCard(sessionRow,"Speed","16","Base value",T.Blue2); MiniCard(sessionRow,"State","READY","No active override",T.Green); MiniCard(sessionRow,"Input","LShift","Activation key",T.Cyan)
+
+local visualPage=Page("Visual")
+PageHeader(visualPage,"VISUAL","Appearance Lab","Fine control over the interface and display layer.")
+Section(visualPage,"Interface","Presentation controls")
+Toggle(visualPage,"Player Highlights","Local highlight presentation",false,function(v) Notify("Highlights",v and "Enabled" or "Disabled",T.Blue2) end)
+Toggle(visualPage,"Precision Crosshair","Minimal HUD reticle overlay",false,function(v) Notify("Crosshair",v and "Enabled" or "Disabled",T.Blue2) end)
+Slider(visualPage,"Field of View","Camera presentation range",70,120,90,"°",function(v) local cam=workspace.CurrentCamera if cam then cam.FieldOfView=v end end)
+Section(visualPage,"Atmosphere","Subtle interface styling")
+local atmos=New("Frame",{Size=UDim2.new(1,0,0,48),BackgroundColor3=T.Card},visualPage); Corner(atmos,7); Stroke(atmos,T.Border,.3)
+Label(atmos,"AMBIENT GLOW",UDim2.new(.6,0,0,12),UDim2.fromOffset(12,7),F.Semi,T.Text,9)
+Label(atmos,"Subtle lighting around active surfaces",UDim2.new(.6,0,0,10),UDim2.fromOffset(12,22),F.Regular,T.Text2,7)
+local ab=Button(atmos,{Size=UDim2.fromOffset(58,24),Position=UDim2.new(1,-70,.5,-12),BackgroundColor3=T.DeepBlue,Text="ON",TextColor3=T.Blue2,Font=F.Bold,TextSize=8}); Corner(ab,5); Stroke(ab,T.Blue,.4)
+
+local settingsPage=Page("Settings")
+PageHeader(settingsPage,"SYSTEM","Settings","Input, behavior and application information.")
+Section(settingsPage,"Controls","Interface behavior")
+Keybind(settingsPage,"Toggle UI Menu",CONFIG.ToggleKey,function(k) CONFIG.ToggleKey=k; Notify("Toggle Key",k.Name,T.Cyan) end)
+Toggle(settingsPage,"Sound Feedback","Interface click and state feedback",true,function(v) Notify("Sound",v and "Enabled" or "Muted",T.Blue2) end)
+Section(settingsPage,"About","Build information")
+local about=New("Frame",{Size=UDim2.new(1,0,0,72),BackgroundColor3=T.Card},settingsPage); Corner(about,7); Stroke(about,T.Border,.3)
+Label(about,"PROJECT NOVA",UDim2.new(.55,0,0,14),UDim2.fromOffset(12,9),F.Bold,T.Text,10)
+Label(about,"Native Roblox UI / Luau",UDim2.new(.55,0,0,10),UDim2.fromOffset(12,24),F.Regular,T.Text2,7)
+Badge(about,"BUILD 2.5",T.Blue2,T.DeepBlue).Position=UDim2.new(1,-82,0,10)
+Label(about,"Design system: NOVA DARK",UDim2.new(.55,0,0,10),UDim2.fromOffset(12,43),F.Regular,T.Text3,7)
+Label(about,"600 × 410 compact desktop layout",UDim2.new(1,-24,0,10),UDim2.fromOffset(12,57),F.Regular,T.Text3,7)
+
+-- ================================================================
+-- FOOTER
+-- ================================================================
+local footer=New("Frame",{Size=UDim2.new(1,0,0,CONFIG.FooterH),Position=UDim2.new(0,0,1,-CONFIG.FooterH),BackgroundColor3=T.Surface,ZIndex=20},window)
+New("Frame",{Size=UDim2.new(1,0,0,1),BackgroundColor3=T.Border},footer)
+local footDot=New("Frame",{Size=UDim2.fromOffset(5,5),Position=UDim2.new(0,10,.5,-2),BackgroundColor3=T.Green},footer); Corner(footDot,3)
+Label(footer,"SYSTEM READY",UDim2.fromOffset(78,CONFIG.FooterH),UDim2.fromOffset(19,0),F.Bold,T.Text3,7)
+Label(footer,"FPS --   •   PING --",UDim2.fromOffset(145,CONFIG.FooterH),UDim2.fromOffset(106,0),F.Regular,T.Text3,7)
+Label(footer,"NOVA UI ENGINE  /  2.5",UDim2.fromOffset(160,CONFIG.FooterH),UDim2.new(1,-170,0,0),F.Regular,T.Text3,7,Enum.TextXAlignment.Right)
+
+-- ================================================================
+-- PAGE SWITCHING
+-- ================================================================
+local function SwitchPage(name)
+    if not pages[name] then return end
+    activePage=name
+    for id,data in pairs(nav) do
+        local on=id==name
+        Tween(data.button,.16,{BackgroundColor3=on and T.DeepBlue or T.Surface,BackgroundTransparency=on and .12 or 1})
+        Tween(data.bar,.16,{BackgroundTransparency=on and 0 or 1})
+        Tween(data.icon,.16,{TextColor3=on and T.Blue2 or T.Text3})
+        Tween(data.text,.16,{TextColor3=on and T.Text or T.Text2})
+        Tween(data.dot,.16,{BackgroundTransparency=on and 0 or 1})
+    end
+    for id,p in pairs(pages) do p.Visible=id==name end
+    local p=pages[name]; p.Position=UDim2.new(0,8,0,0); Tween(p,.18,{Position=UDim2.new(0,0,0,0)})
+end
+for id,data in pairs(nav) do data.button.MouseButton1Click:Connect(function() SwitchPage(id) end) end
+SwitchPage("Dashboard")
+
+-- ================================================================
+-- DRAGGING / MINIMIZE / VISIBILITY
+-- ================================================================
+local dragging=false; local dragStart; local startPos; local dragInput
+local function beginDrag(input)
+    if input.UserInputType==Enum.UserInputType.MouseButton1 or input.UserInputType==Enum.UserInputType.Touch then
+        dragging=true; dragStart=input.Position; startPos=window.Position
+        input.Changed:Connect(function() if input.UserInputState==Enum.UserInputState.End then dragging=false end end)
+    end
+end
+titleBar.InputBegan:Connect(beginDrag)
+titleBar.InputChanged:Connect(function(input) if input.UserInputType==Enum.UserInputType.MouseMovement or input.UserInputType==Enum.UserInputType.Touch then dragInput=input end end)
+UserInputService.InputChanged:Connect(function(input)
+    if dragging and input==dragInput then
+        local d=input.Position-dragStart
+        local p=UDim2.new(startPos.X.Scale,startPos.X.Offset+d.X,startPos.Y.Scale,startPos.Y.Offset+d.Y)
+        window.Position=p; shadow.Position=p
+    end
 end)
 
-ExpandBtn.MouseButton1Click:Connect(function()
-    SetMinimized(false)
-end)
-
--- Mobile button forward declarations
-local mobileIcon: TextLabel? = nil
-local mobileStroke: UIStroke? = nil
-
--- Close Button & Window Visibility Manager
-local function SetWindowVisibility(visible: boolean)
-    isWindowVisible = visible
-    if not isWindowVisible then
-        local fadeTween = tween(MainWindow, CONFIG.AnimSpeed.Standard, { BackgroundTransparency = 1 })
-        tween(ShadowFrame, CONFIG.AnimSpeed.Standard, { BackgroundTransparency = 1 })
-        fadeTween.Completed:Connect(function()
-            if not isWindowVisible then
-                MainWindow.Visible = false
-                ShadowFrame.Visible = false
-            end
-        end)
-        if mobileIcon then
-            tween(mobileIcon, CONFIG.AnimSpeed.Micro, { TextColor3 = CONFIG.Theme.TextSecondary })
-        end
-        if mobileStroke then
-            tween(mobileStroke, CONFIG.AnimSpeed.Micro, { Color = CONFIG.Theme.Border })
-        end
-        Notify("Menu Hidden", "Ketuk tombol [⚡] di layar atau tekan [" .. CONFIG.ToggleKey.Name .. "].", 3, "Info")
+local minimized=false
+local function SetMinimized(v)
+    minimized=v
+    local h=v and CONFIG.TitleH or CONFIG.Window.Y
+    if v then
+        body.Visible=false; footer.Visible=false
+        Tween(window,.22,{Size=UDim2.fromOffset(CONFIG.Window.X,CONFIG.TitleH)})
+        Tween(shadow,.22,{Size=UDim2.fromOffset(CONFIG.Window.X+22,CONFIG.TitleH+18)})
     else
-        MainWindow.Visible = true
-        ShadowFrame.Visible = true
-        MainWindow.BackgroundTransparency = 1
-        ShadowFrame.BackgroundTransparency = 1
-        tween(MainWindow, CONFIG.AnimSpeed.Standard, { BackgroundTransparency = 0 })
-        tween(ShadowFrame, CONFIG.AnimSpeed.Standard, { BackgroundTransparency = 0.55 })
-        if mobileIcon then
-            tween(mobileIcon, CONFIG.AnimSpeed.Micro, { TextColor3 = CONFIG.Theme.BrightBlue })
-        end
-        if mobileStroke then
-            tween(mobileStroke, CONFIG.AnimSpeed.Micro, { Color = CONFIG.Theme.PrimaryBlue })
-        end
+        Tween(window,.22,{Size=UDim2.fromOffset(CONFIG.Window.X,CONFIG.Window.Y)})
+        Tween(shadow,.22,{Size=UDim2.fromOffset(CONFIG.Window.X+22,CONFIG.Window.Y+22)})
+        task.delay(.18,function() if not minimized then body.Visible=true; footer.Visible=true end end)
     end
 end
+minBtn.MouseButton1Click:Connect(function() SetMinimized(not minimized) end)
+maxBtn.MouseButton1Click:Connect(function() Notify("Layout","Compact desktop layout is fixed at 600 × 410.",T.Cyan) end)
 
-CloseBtn.MouseButton1Click:Connect(function()
-    SetWindowVisibility(false)
+local visible=true
+closeBtn.MouseButton1Click:Connect(function()
+    visible=false
+    Tween(window,.18,{BackgroundTransparency=1,Size=UDim2.fromOffset(CONFIG.Window.X*.98,CONFIG.Window.Y*.98)})
+    Tween(shadow,.18,{BackgroundTransparency=1})
+    task.delay(.2,function()
+        if not visible then
+            window.Visible=false
+            shadow.Visible=false
+            floating.Visible=true
+        end
+    end)
 end)
 
--- Mobile / On-Screen Floating Toggle Button (Sangat penting untuk Delta Mobile Android/iOS)
-local MobileToggleBtn = Instance.new("ImageButton")
-MobileToggleBtn.Name = "MobileToggleBtn"
-MobileToggleBtn.Size = UDim2.new(0, 42, 0, 42)
-MobileToggleBtn.Position = UDim2.new(0, 16, 0.5, -21)
-MobileToggleBtn.BackgroundColor3 = CONFIG.Theme.Card
-MobileToggleBtn.BackgroundTransparency = 0.15
-MobileToggleBtn.ZIndex = 60
-MobileToggleBtn.AutoButtonColor = false
-MobileToggleBtn.Parent = ScreenGui
-applyCorner(MobileToggleBtn, 10)
-mobileStroke = applyStroke(MobileToggleBtn, CONFIG.Theme.PrimaryBlue, 1.5, 0.2)
+-- Mobile & PC Draggable Floating Toggle Button
+local floating=Button(gui,{
+    Size=UDim2.fromOffset(42,42),
+    Position=UDim2.new(0,18,.5,-21),
+    BackgroundColor3=T.Card,
+    Text="✦",
+    TextColor3=T.Blue2,
+    Font=F.Bold,
+    TextSize=17,
+    ZIndex=90
+})
+Corner(floating,12); Stroke(floating,T.Blue,.25)
+floating.Visible=false
 
-mobileIcon = Instance.new("TextLabel")
-mobileIcon.Name = "Icon"
-mobileIcon.Size = UDim2.new(1, 0, 1, 0)
-mobileIcon.BackgroundTransparency = 1
-mobileIcon.Text = "⚡"
-mobileIcon.TextColor3 = CONFIG.Theme.BrightBlue
-mobileIcon.TextSize = 20
-mobileIcon.Font = CONFIG.Typography.Header
-mobileIcon.Parent = MobileToggleBtn
+local floatDragging = false
+local floatDragStart = nil
+local floatStartPos = nil
+local floatMoved = false
 
--- Buat tombol mobile ini bisa di-drag bebas di layar HP tanpa bentrok dengan klik
-local mobileDragging = false
-local mobileDragStart = nil
-local mobileStartPos = nil
-local mobileMoved = false
-
-MobileToggleBtn.InputBegan:Connect(function(input)
+floating.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        mobileDragging = true
-        mobileMoved = false
-        mobileDragStart = input.Position
-        mobileStartPos = MobileToggleBtn.Position
+        floatDragging = true
+        floatMoved = false
+        floatDragStart = input.Position
+        floatStartPos = floating.Position
 
         input.Changed:Connect(function()
             if input.UserInputState == Enum.UserInputState.End then
-                mobileDragging = false
+                floatDragging = false
             end
         end)
     end
 end)
 
 UserInputService.InputChanged:Connect(function(input)
-    if mobileDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-        local delta = input.Position - mobileDragStart
+    if floatDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local delta = input.Position - floatDragStart
         if math.abs(delta.X) > 5 or math.abs(delta.Y) > 5 then
-            mobileMoved = true
+            floatMoved = true
         end
-        MobileToggleBtn.Position = UDim2.new(
-            mobileStartPos.X.Scale,
-            mobileStartPos.X.Offset + delta.X,
-            mobileStartPos.Y.Scale,
-            mobileStartPos.Y.Offset + delta.Y
+        floating.Position = UDim2.new(
+            floatStartPos.X.Scale,
+            floatStartPos.X.Offset + delta.X,
+            floatStartPos.Y.Scale,
+            floatStartPos.Y.Offset + delta.Y
         )
     end
 end)
 
-MobileToggleBtn.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        if not mobileMoved then
-            SetWindowVisibility(not isWindowVisible)
+floating.InputEnded:Connect(function(input)
+    if (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) and not floatMoved then
+        visible = true
+        floating.Visible = false
+        window.Visible = true
+        shadow.Visible = true
+        window.BackgroundTransparency = 0
+        shadow.BackgroundTransparency = .48
+        Tween(window, .18, {Size = UDim2.fromOffset(CONFIG.Window.X, CONFIG.Window.Y)})
+    end
+end)
+
+UserInputService.InputBegan:Connect(function(input,gp)
+    if not gp and input.KeyCode==CONFIG.ToggleKey then
+        if visible then
+            visible=false
+            Tween(window,.16,{BackgroundTransparency=1})
+            Tween(shadow,.16,{BackgroundTransparency=1})
+            task.delay(.17,function() if not visible then window.Visible=false; shadow.Visible=false; floating.Visible=true end end)
+        else
+            visible=true; floating.Visible=false; window.Visible=true; shadow.Visible=true
+            window.BackgroundTransparency=1; shadow.BackgroundTransparency=1
+            Tween(window,.2,{BackgroundTransparency=0}); Tween(shadow,.2,{BackgroundTransparency=.48})
         end
     end
 end)
 
--- Global Keybind to Toggle Menu Visibility
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if not gameProcessed and input.KeyCode == CONFIG.ToggleKey then
-        SetWindowVisibility(not isWindowVisible)
+-- live telemetry
+local frames, elapsed = 0, 0
+RunService.RenderStepped:Connect(function(dt)
+    frames += 1; elapsed += dt
+    if elapsed >= .5 then
+        local fps=math.floor(frames/elapsed)
+        local ping=0
+        pcall(function() ping=math.floor(player:GetNetworkPing()*1000) end)
+        if ping<0 then ping=0 end
+        for _,obj in ipairs(footer:GetChildren()) do
+            if obj:IsA("TextLabel") and string.find(obj.Text,"FPS") then obj.Text=string.format("FPS %d   •   PING %dms",fps,ping) end
+        end
+        frames=0; elapsed=0
     end
 end)
 
---------------------------------------------------------------------------------
--- 15. INITIALIZATION & LAUNCH
---------------------------------------------------------------------------------
-SwitchPage("Main")
-SetEngineStatus("READY")
-
--- Boot Toast Notification
-task.delay(0.3, function()
-    Notify("Project Nova Initialized", "Version " .. CONFIG.Version .. " loaded. Press [" .. CONFIG.ToggleKey.Name .. "] to toggle.", 3.5, "Success")
+-- boot animation
+window.BackgroundTransparency=1; shadow.BackgroundTransparency=1
+window.Size=UDim2.fromOffset(CONFIG.Window.X*.96,CONFIG.Window.Y*.96)
+shadow.Size=UDim2.fromOffset(CONFIG.Window.X*.96+22,CONFIG.Window.Y*.96+22)
+task.delay(.05,function()
+    Tween(window,.3,{BackgroundTransparency=0,Size=UDim2.fromOffset(CONFIG.Window.X,CONFIG.Window.Y)})
+    Tween(shadow,.3,{BackgroundTransparency=.48,Size=UDim2.fromOffset(CONFIG.Window.X+22,CONFIG.Window.Y+22)})
+    task.delay(.35,function() Notify("Project Nova","UI Overhaul loaded. Ketuk [✦] atau RightShift.",T.Green) end)
 end)
 
-print("[Project Nova] UI Engine initialized successfully.")
+print("[Project Nova] UI Overhaul 2.5 loaded.")
