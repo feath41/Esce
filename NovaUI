@@ -468,12 +468,13 @@ local sidebar = New("Frame", {
     Size = UDim2.new(0, CONFIG.Sidebar, 1, 0), BackgroundColor3 = T.Surface,
     BackgroundTransparency = 0.08, ZIndex = 6,
 }, body)
-New("Frame", {Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, -1, 0, 0), BackgroundColor3 = T.Border, ZIndex = 7}, sidebar)
+-- Border divider placed on body so UIListLayout inside sidebar is not distorted
+New("Frame", {Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(0, CONFIG.Sidebar, 0, 0), BackgroundColor3 = T.Border, ZIndex = 7}, body)
 Padding(sidebar, 10, 10, 12, 10)
 Layout(sidebar, nil, 5)
 
 -- Workspace Card
-local workspaceCard = New("Frame", {Size = UDim2.new(1, 0, 0, 58), BackgroundColor3 = T.Card}, sidebar)
+local workspaceCard = New("Frame", {Size = UDim2.new(1, 0, 0, 52), BackgroundColor3 = T.Card, LayoutOrder = 1}, sidebar)
 Corner(workspaceCard, 7); Stroke(workspaceCard, T.Border, 0.3)
 local wsAccent = New("Frame", {Size = UDim2.new(0, 2, 0.62, 0), Position = UDim2.new(0, 0, 0.19, 0), BackgroundColor3 = T.Blue}, workspaceCard)
 Corner(wsAccent, 1)
@@ -482,9 +483,10 @@ Label(workspaceCard, "FEATH / COMBAT", UDim2.new(1, -28, 0, 15), UDim2.fromOffse
 Label(workspaceCard, "Delta Engine v2.6", UDim2.new(1, -28, 0, 12), UDim2.fromOffset(14, 36), F.Regular, T.Text3, 8)
 local wsDot = New("Frame", {Size = UDim2.fromOffset(6, 6), Position = UDim2.new(1, -14, 0.5, -3), BackgroundColor3 = T.Green}, workspaceCard); Corner(wsDot, 3)
 
-Label(sidebar, "NAVIGATION", UDim2.new(1, 0, 0, 16), nil, F.Bold, T.Text3, 7)
+local navLabel = Label(sidebar, "NAVIGATION", UDim2.new(1, 0, 0, 14), nil, F.Bold, T.Text3, 7)
+navLabel.LayoutOrder = 2
 
-local navContainer = New("Frame", {Size = UDim2.new(1, 0, 0, 175), BackgroundTransparency = 1}, sidebar)
+local navContainer = New("Frame", {Size = UDim2.new(1, 0, 0, 175), BackgroundTransparency = 1, LayoutOrder = 3}, sidebar)
 Layout(navContainer, nil, 4)
 
 local navData = {
@@ -516,7 +518,7 @@ end
 for _, item in ipairs(navData) do NavButton(item) end
 
 -- System Status Card
-local systemCard = New("Frame", {Size = UDim2.new(1, 0, 0, 54), BackgroundColor3 = T.Card}, sidebar)
+local systemCard = New("Frame", {Size = UDim2.new(1, 0, 0, 52), BackgroundColor3 = T.Card, LayoutOrder = 4}, sidebar)
 Corner(systemCard, 7); Stroke(systemCard, T.Border, 0.35)
 Label(systemCard, "SYSTEM TELEMETRY", UDim2.new(1, -24, 0, 10), UDim2.fromOffset(12, 8), F.Bold, T.Text3, 7)
 local sysDot = New("Frame", {Size = UDim2.fromOffset(6, 6), Position = UDim2.new(0, 12, 0, 26), BackgroundColor3 = T.Green}, systemCard); Corner(sysDot, 3)
@@ -693,24 +695,157 @@ local function PrimaryButton(parent, text, callback)
     return b
 end
 
-local function Drawer(parent, title, subtitle)
-    local expanded = false
-    local card = New("Frame", {Size = UDim2.new(1, 0, 0, 48), BackgroundColor3 = T.Card, ClipsDescendants = true}, parent); Corner(card, 7); local s = Stroke(card, T.Border, 0.25)
-    local head = Button(card, {Size = UDim2.new(1, 0, 0, 48), BackgroundTransparency = 1, Text = ""})
-    local icon = New("Frame", {Size = UDim2.fromOffset(28, 28), Position = UDim2.fromOffset(10, 10), BackgroundColor3 = T.DeepBlue}, head); Corner(icon, 7); Stroke(icon, T.Blue, 0.35); Label(icon, "⌁", UDim2.fromScale(1, 1), nil, F.Bold, T.Blue2, 14, Enum.TextXAlignment.Center)
-    Label(head, title, UDim2.new(0.55, 0, 0, 14), UDim2.fromOffset(48, 8), F.Semi, T.Text, 10)
-    Label(head, subtitle, UDim2.new(0.55, 0, 0, 10), UDim2.fromOffset(48, 25), F.Regular, T.Text2, 7)
-    local chev = Label(head, "⌄", UDim2.fromOffset(18, 20), UDim2.new(1, -25, 0.5, -10), F.Bold, T.Blue2, 11, Enum.TextXAlignment.Center)
-    local bodyFrame = New("Frame", {Size = UDim2.new(1, -20, 0, 0), Position = UDim2.fromOffset(10, 54), BackgroundTransparency = 1, ClipsDescendants = true}, card)
-    local bl = Layout(bodyFrame, nil, 6)
-    local function refresh()
-        local h = bl.AbsoluteContentSize.Y + 4
-        bodyFrame.Size = UDim2.new(1, -20, 0, h)
-        Tween(card, 0.22, {Size = UDim2.new(1, 0, 0, (expanded and 58 + h or 48))})
-        chev.Text = expanded and "⌃" or "⌄"; s.Color = expanded and T.Border2 or T.Border
+local activeDropdownCloser = nil
+local function CloseAllDropdowns()
+    if activeDropdownCloser then
+        local c = activeDropdownCloser
+        activeDropdownCloser = nil
+        c()
     end
-    head.MouseButton1Click:Connect(function() expanded = not expanded; refresh() end)
-    return {Card = card, Body = bodyFrame, Refresh = refresh}
+end
+
+local function Dropdown(parent, title, desc, options, defaultVal, callback)
+    options = options or {}
+    local selectedVal = defaultVal or options[1] or "Pilih..."
+    local isOpen = false
+
+    local card = New("Frame", {Size = UDim2.new(1, 0, 0, 52), BackgroundColor3 = T.Card, ClipsDescendants = true}, parent)
+    Corner(card, 7); local st = Stroke(card, T.Border, 0.25)
+
+    Label(card, title, UDim2.new(0.52, 0, 0, 14), UDim2.fromOffset(12, 9), F.Semi, T.Text, 10)
+    Label(card, desc, UDim2.new(0.52, 0, 0, 10), UDim2.fromOffset(12, 26), F.Regular, T.Text3, 7)
+
+    local selBtn = Button(card, {Size = UDim2.fromOffset(124, 28), Position = UDim2.new(1, -132, 0, 12), BackgroundColor3 = T.DeepBlue, Text = tostring(selectedVal) .. "  ▾", TextColor3 = T.Blue2, Font = F.Bold, TextSize = 9})
+    Corner(selBtn, 5); local selStroke = Stroke(selBtn, T.Blue, 0.35)
+
+    local optCount = #options
+    local optHeight = 24
+    local optSpacing = 2
+    local totalListHeight = optCount * (optHeight + optSpacing) + 6
+
+    local optList = New("Frame", {Size = UDim2.new(1, -20, 0, totalListHeight), Position = UDim2.fromOffset(10, 48), BackgroundColor3 = T.Panel, ClipsDescendants = true, Visible = false}, card)
+    Corner(optList, 6); Stroke(optList, T.Border2, 0.35)
+    Layout(optList, nil, optSpacing)
+    Padding(optList, 3, 3, 3, 3)
+
+    local optButtons = {}
+    local function updateVisuals()
+        for _, item in ipairs(optButtons) do
+            local isSel = (item.Val == selectedVal)
+            if isSel then
+                item.Btn.BackgroundColor3 = T.DeepBlue
+                item.Btn.TextColor3 = T.Blue2
+                item.Btn.Text = "  ✓  " .. item.Name
+                item.Btn.Font = F.Bold
+            else
+                item.Btn.BackgroundColor3 = T.Card
+                item.Btn.TextColor3 = T.Text2
+                item.Btn.Text = "      " .. item.Name
+                item.Btn.Font = F.Regular
+            end
+        end
+    end
+
+    local function closeDropdown()
+        if not isOpen then return end
+        isOpen = false
+        optList.Visible = false
+        selBtn.Text = tostring(selectedVal) .. "  ▾"
+        selStroke.Color = T.Blue
+        st.Color = T.Border
+        card.Size = UDim2.new(1, 0, 0, 52)
+        if activeDropdownCloser == closeDropdown then
+            activeDropdownCloser = nil
+        end
+    end
+
+    local function openDropdown()
+        CloseAllDropdowns()
+        isOpen = true
+        activeDropdownCloser = closeDropdown
+        selBtn.Text = tostring(selectedVal) .. "  ▲"
+        selStroke.Color = T.Blue2
+        st.Color = T.Border2
+        optList.Visible = true
+        card.Size = UDim2.new(1, 0, 0, 52 + totalListHeight + 6)
+    end
+
+    selBtn.MouseButton1Click:Connect(function()
+        if isOpen then closeDropdown() else openDropdown() end
+    end)
+
+    for _, opt in ipairs(options) do
+        local optName = tostring(opt)
+        local btn = Button(optList, {Size = UDim2.new(1, 0, 0, optHeight), BackgroundColor3 = T.Card, Text = "      " .. optName, TextColor3 = T.Text2, Font = F.Regular, TextSize = 8, TextXAlignment = Enum.TextXAlignment.Left})
+        Corner(btn, 4)
+        btn.MouseEnter:Connect(function()
+            if opt ~= selectedVal then
+                Tween(btn, 0.08, {BackgroundColor3 = T.Hover, TextColor3 = T.Text})
+            end
+        end)
+        btn.MouseLeave:Connect(function()
+            if opt ~= selectedVal then
+                Tween(btn, 0.08, {BackgroundColor3 = T.Card, TextColor3 = T.Text2})
+            end
+        end)
+        btn.MouseButton1Click:Connect(function()
+            selectedVal = opt
+            updateVisuals()
+            closeDropdown()
+            if callback then callback(opt) end
+        end)
+        table.insert(optButtons, {Name = optName, Val = opt, Btn = btn})
+    end
+
+    updateVisuals()
+    return card
+end
+
+local function Drawer(parent, title, subtitle, defaultOpen, iconChar)
+    local expanded = defaultOpen == true
+    local card = New("Frame", {Size = UDim2.new(1, 0, 0, 48), BackgroundColor3 = T.Card, ClipsDescendants = true}, parent)
+    Corner(card, 7); local s = Stroke(card, T.Border, 0.25)
+    local head = Button(card, {Size = UDim2.new(1, 0, 0, 48), BackgroundTransparency = 1, Text = ""})
+    local icon = New("Frame", {Size = UDim2.fromOffset(28, 28), Position = UDim2.fromOffset(10, 10), BackgroundColor3 = T.DeepBlue}, head)
+    Corner(icon, 7); Stroke(icon, T.Blue, 0.35)
+    Label(icon, iconChar or "⌁", UDim2.fromScale(1, 1), nil, F.Bold, T.Blue2, 13, Enum.TextXAlignment.Center)
+    Label(head, title, UDim2.new(0.55, 0, 0, 14), UDim2.fromOffset(48, 8), F.Semi, T.Text, 10)
+    Label(head, subtitle or "Fitur Kontrol", UDim2.new(0.55, 0, 0, 10), UDim2.fromOffset(48, 25), F.Regular, T.Text2, 7)
+    local chev = Label(head, expanded and "▲" or "▼", UDim2.fromOffset(18, 20), UDim2.new(1, -25, 0.5, -10), F.Bold, T.Blue2, 11, Enum.TextXAlignment.Center)
+    local bodyFrame = New("Frame", {Size = UDim2.new(1, -16, 0, 0), Position = UDim2.fromOffset(8, 52), BackgroundTransparency = 1, ClipsDescendants = true, Visible = expanded}, card)
+    local bl = Layout(bodyFrame, nil, 6)
+
+    local function refresh()
+        if expanded then
+            bodyFrame.Visible = true
+            local h = bl.AbsoluteContentSize.Y + 8
+            bodyFrame.Size = UDim2.new(1, -16, 0, h)
+            card.Size = UDim2.new(1, 0, 0, 56 + h)
+            chev.Text = "▲"; s.Color = T.Border2
+        else
+            bodyFrame.Visible = false
+            card.Size = UDim2.new(1, 0, 0, 48)
+            chev.Text = "▼"; s.Color = T.Border
+        end
+    end
+
+    bl:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+        if expanded then
+            task.defer(refresh)
+        end
+    end)
+
+    head.MouseButton1Click:Connect(function()
+        CloseAllDropdowns()
+        expanded = not expanded
+        refresh()
+    end)
+
+    if expanded then
+        task.defer(refresh)
+    end
+
+    return bodyFrame
 end
 
 -- ============================================================================
@@ -1200,7 +1335,7 @@ end
 -- ============================================================================
 -- 11. BUILD PAGES CONTENT
 -- ============================================================================
--- 1. DASHBOARD PAGE
+-- 1. DASHBOARD PAGE (Overview + Quick Teleport / Fly / Combat Actions)
 local dashboard = Page("Dashboard")
 PageHeader(dashboard, "OVERVIEW", "Combat Control Center", "Active target acquisition, tracking and session telemetry.")
 
@@ -1210,9 +1345,9 @@ local sLock = Stat(statRow, "Aim Lock", "STANDBY", "Press [Q] to lock", T.Green)
 local sTarget = Stat(statRow, "Target", "NONE", "No enemy locked", T.Blue2)
 local sTracking = Stat(statRow, "Silent Aim", "INACTIVE", "Press [T] to toggle", T.Cyan)
 
-Section(dashboard, "Quick Command", "Instant combat actions")
-local qGrid = New("Frame", {Size = UDim2.new(1, 0, 0, 42), BackgroundTransparency = 1}, dashboard)
-New("UIGridLayout", {CellPadding = UDim2.fromOffset(8, 0), CellSize = UDim2.new(0.5, -4, 1, 0), FillDirectionMaxCells = 2}, qGrid)
+Section(dashboard, "Quick Command", "Instant combat & movement actions")
+local qGrid = New("Frame", {Size = UDim2.new(1, 0, 0, 80), BackgroundTransparency = 1}, dashboard)
+New("UIGridLayout", {CellPadding = UDim2.fromOffset(8, 8), CellSize = UDim2.new(0.5, -4, 0, 36), FillDirectionMaxCells = 2}, qGrid)
 
 local qLockBtn = PrimaryButton(qGrid, "AIM LOCK [Q]", function()
     AutoLockEnabled = not AutoLockEnabled
@@ -1220,7 +1355,7 @@ local qLockBtn = PrimaryButton(qGrid, "AIM LOCK [Q]", function()
     Notify("Aim Lock", AutoLockEnabled and "Engine LOCKED" or "Engine STANDBY", AutoLockEnabled and T.Green or T.Text2)
 end)
 
-local qSwitchBtn = Button(qGrid, {Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = T.DeepBlue, Text = "⇄   SWITCH TARGET [TAB]", TextColor3 = T.Blue2, Font = F.Bold, TextSize = 10})
+local qSwitchBtn = Button(qGrid, {BackgroundColor3 = T.DeepBlue, Text = "⇄   SWITCH TARGET [TAB]", TextColor3 = T.Blue2, Font = F.Bold, TextSize = 10})
 Corner(qSwitchBtn, 6); Stroke(qSwitchBtn, T.Blue, 0.4)
 qSwitchBtn.MouseButton1Click:Connect(function()
     pcall(function()
@@ -1239,6 +1374,14 @@ qSwitchBtn.MouseButton1Click:Connect(function()
     end)
 end)
 
+local qWarpBtn = Button(qGrid, {BackgroundColor3 = T.Card, Text = "⚡   TELEPORT KE TARGET", TextColor3 = T.Cyan, Font = F.Bold, TextSize = 10})
+Corner(qWarpBtn, 6); Stroke(qWarpBtn, T.Cyan, 0.3)
+qWarpBtn.MouseButton1Click:Connect(ExecuteTeleport)
+
+local qFlyBtn = Button(qGrid, {BackgroundColor3 = T.Card, Text = "🚀   TERBANG KE TARGET", TextColor3 = T.Yellow, Font = F.Bold, TextSize = 10})
+Corner(qFlyBtn, 6); Stroke(qFlyBtn, T.Yellow, 0.3)
+qFlyBtn.MouseButton1Click:Connect(ToggleFly)
+
 Section(dashboard, "Live Target Diagnostics", "Real-time locked target telemetry")
 local targetCard = New("Frame", {Size = UDim2.new(1, 0, 0, 68), BackgroundColor3 = T.Card}, dashboard)
 Corner(targetCard, 7); Stroke(targetCard, T.Border, 0.3)
@@ -1247,91 +1390,112 @@ local tDistLbl = Label(targetCard, "Distance: -- studs  •  Type: --", UDim2.ne
 local hpBg = New("Frame", {Size = UDim2.new(1, -24, 0, 6), Position = UDim2.fromOffset(12, 48), BackgroundColor3 = T.Track}, targetCard); Corner(hpBg, 3)
 local hpFill = New("Frame", {Size = UDim2.new(0, 0, 1, 0), BackgroundColor3 = T.Green}, hpBg); Corner(hpFill, 3)
 
--- 2. COMBAT PAGE
+-- 2. COMBAT PAGE (Semua Pengaturan Aim Lock, Teleport, & Movement Terbuka Langsung!)
 local combatPage = Page("Combat")
-PageHeader(combatPage, "COMBAT", "Aim Lock & Movement", "Precision targeting mechanics and player kinematics.")
+PageHeader(combatPage, "COMBAT", "Aim Lock & Movement", "Kunci target musuh otomatis, teleportasi, dan navigasi terbang.")
 
-Section(combatPage, "Target Locking", "Primary aim acquisition")
-local aimLockToggle = Toggle(combatPage, "Aim Lock Master", "Locks crosshair and camera smoothly onto target", false, function(v)
-    AutoLockEnabled = v
-    if AutoLockEnabled then SetTarget(FindBestTarget()) else SetTarget(nil) end
-    Notify("Aim Lock", AutoLockEnabled and "Active" or "Deactivated", AutoLockEnabled and T.Green or T.Text2)
+local aimDrawer = Drawer(combatPage, "🎯 Aim Lock Controls Utama", "Sistem penguncian target & sudut pandang kamera", true, "🎯")
+Toggle(aimDrawer, "Aim Lock Master", "Aktifkan penguncian kamera otomatis ke musuh terdekat", Config.AimLockEnabled, function(v)
+    Config.AimLockEnabled = v
+    if not v and CurrentTargetChar then SetTarget(nil) end
 end)
-
-local targetDrawer = Drawer(combatPage, "Target Behavior & Filters", "Tune locking priority, body part, and smooth motion")
-CycleButton(targetDrawer.Body, "Target Body Part", "Select hitbox to lock", {"Head", "Torso"}, 1, function(v)
+Dropdown(aimDrawer, "Target Body Part", "Pilih bagian tubuh musuh yang ditarget", {"Head", "Torso"}, Config.TargetPartChoice, function(v)
     Config.TargetPartChoice = v
-    if CurrentTargetChar then SetTarget({Character = CurrentTargetChar, Part = GetTargetPart(CurrentTargetChar), IsNPC = CurrentTargetIsNPC}) end
+    if CurrentTargetChar then SetTarget(FindBestTarget()) end
 end)
-CycleButton(targetDrawer.Body, "Target Entity Type", "Filter player or NPC entities", {"All", "Player", "NPC"}, 1, function(v)
+Dropdown(aimDrawer, "Target Entity Type", "Filter musuh yang dapat dikunci oleh sistem", {"All", "Player", "NPC"}, Config.TargetType, function(v)
     Config.TargetType = v
+    if CurrentTargetChar then SetTarget(FindBestTarget()) end
 end)
-CycleButton(targetDrawer.Body, "Switch Priority Mode", "Switch cadence when multiple enemies exist", {"Dynamic", "LowestHP", "Persistent"}, 1, function(v)
-    Config.TargetSwitchMode = v
+Dropdown(aimDrawer, "Target Switch Mode", "Logika pergantian target ketika tombol ditekan", {"Dynamic", "LowestHP", "Persistent"}, Config.SwitchMode, function(v)
+    Config.SwitchMode = v
 end)
-Toggle(targetDrawer.Body, "Team Check", "Prevent targeting teammates", false, function(v) Config.TeamCheck = v end)
-Toggle(targetDrawer.Body, "Auto Face Character", "Character torso rotates facing the enemy", true, function(v) Config.AutoFaceCharacter = v end)
-Slider(targetDrawer.Body, "Camera Smoothing", "Interpolation factor (0.05=soft, 1.0=instant)", 0.05, 1.0, 0.52, "", function(v) Config.CameraSmoothing = v end)
-Slider(targetDrawer.Body, "Max Lock Distance", "Max engagement radius in studs", 30, 250, 80, " studs", function(v) Config.MaxLockDistance = v; Config.BreakDistance = v + 20 end)
-task.defer(targetDrawer.Refresh)
+Toggle(aimDrawer, "Team Check", "Abaikan pemain satu tim agar tidak terkunci", Config.TeamCheck, function(v)
+    Config.TeamCheck = v
+end)
+Toggle(aimDrawer, "Auto Face Character", "Paksa karakter menghadap langsung ke arah target", Config.AutoFaceTarget, function(v)
+    Config.AutoFaceTarget = v
+end)
 
-Section(combatPage, "Teleport & Motion", "Kinematic overrides and gap closers")
-local moveDrawer = Drawer(combatPage, "Motion Extras & Teleport", "Instant warp and character speed boosts")
-PrimaryButton(moveDrawer.Body, "WARP BEHIND TARGET", ExecuteTeleport)
-Toggle(moveDrawer.Body, "Fly to Target", "Smoothly fly straight toward locked enemy", false, ToggleFly)
-Slider(moveDrawer.Body, "Fly Speed", "Speed of flight travel in studs/second", 40, 300, 120, " studs/s", function(v) Config.FlySpeed = v end)
-Toggle(moveDrawer.Body, "Speed Boost Multiplier", "Augments Humanoid WalkSpeed", false, function(v)
-    Config.SpeedBoostEnabled = v
-    local myChar = LocalPlayer.Character
-    local hum = myChar and myChar:FindFirstChildOfClass("Humanoid")
-    if hum then hum.WalkSpeed = v and (16 * Config.SpeedBoostMultiplier) or 16 end
+local aggroDrawer = Drawer(combatPage, "⚡ Keganasan & Kehalusan Lock", "Penyesuaian kecepatan kamera dan jangkauan lock", false, "⚡")
+Slider(aggroDrawer, "Camera Smoothing", "Tingkat kehalusan kamera (makin kecil makin instan/agresif)", 1, 100, Config.CameraSmoothness, "", function(v)
+    Config.CameraSmoothness = v
 end)
-Slider(moveDrawer.Body, "Speed Multiplier", "WalkSpeed multiplier level", 1.0, 4.0, 2.0, "x", function(v)
-    Config.SpeedBoostMultiplier = v
-    if Config.SpeedBoostEnabled then
-        local myChar = LocalPlayer.Character
-        local hum = myChar and myChar:FindFirstChildOfClass("Humanoid")
-        if hum then hum.WalkSpeed = 16 * v end
-    end
+Slider(aggroDrawer, "Max Lock Distance", "Jarak jangkauan deteksi musuh maksimum", 50, 2000, Config.MaxAimDistance, " studs", function(v)
+    Config.MaxAimDistance = v
 end)
-Toggle(moveDrawer.Body, "Bunny Hop Simulation", "Auto jump rhythmically while moving", false, function(v) Config.BunnyHopEnabled = v end)
-task.defer(moveDrawer.Refresh)
 
--- 3. TRACKING PAGE
+local flyDrawer = Drawer(combatPage, "🚀 Teleport & Fly Noclip", "Navigasi instan ke musuh dan penerbangan noclip", false, "🚀")
+PrimaryButton(flyDrawer, "⚡ TELEPORT INSTAN KE TARGET", function()
+    ExecuteTeleport()
+end)
+Toggle(flyDrawer, "Fly Noclip", "Mode terbang bebas menembus dinding ke posisi target", Config.FlyNoclipEnabled, function(v)
+    Config.FlyNoclipEnabled = v
+    ToggleFly()
+end)
+Slider(flyDrawer, "Fly Speed", "Kecepatan terbang noclip karakter", 20, 300, Config.FlySpeed, " spd", function(v)
+    Config.FlySpeed = v
+end)
+Toggle(flyDrawer, "Speed Boost", "Tingkatkan kecepatan lari karakter utama", Config.SpeedBoost, function(v)
+    Config.SpeedBoost = v
+end)
+Slider(flyDrawer, "Speed Multiplier", "Pengali kecepatan jalan karakter", 1, 5, Config.SpeedMultiplier, "x", function(v)
+    Config.SpeedMultiplier = v
+end)
+Toggle(flyDrawer, "Bunny Hop", "Simulasi lompatan berulang otomatis untuk kecepatan ekstra", Config.BunnyHop, function(v)
+    Config.BunnyHop = v
+end)
+
+-- 3. TRACKING PAGE (Silent Aim, Hit Part, Projectiles, Prediction, Auto Shoot)
 local trackingPage = Page("Tracking")
-PageHeader(trackingPage, "TRACKING", "Ballistics & Silent Aim", "Bullet redirection, projectile prediction and triggerbot.")
+PageHeader(trackingPage, "TRACKING", "Silent Aim & TriggerBot", "Peluru otomatis membelok ke arah target dan auto shoot.")
 
-Section(trackingPage, "Silent Aim", "Metamethod bullet interception")
-Toggle(trackingPage, "Silent Aim / Bullet Tracking", "Rays and shots automatically redirect to target", false, function(v)
-    Config.BulletTrackingEnabled = v
-    _G.FeathCombatConfig = Config
-    Notify("Silent Aim", v and "Enabled" or "Disabled", v and T.Green or T.Text2)
+local trackDrawer = Drawer(trackingPage, "🎯 Silent Aim & Bullet Tracking", "Peluru otomatis melacak dan mengenai musuh", true, "🎯")
+Toggle(trackDrawer, "Silent Aim Master", "Arahkan tembakan peluru langsung ke target", Config.SilentAimEnabled, function(v)
+    Config.SilentAimEnabled = v
+    ReticleFrame.Visible = v or Config.HUDPrecisionCrosshair
+    Notify("Silent Aim", v and "Aktif" or "Nonaktif", v and T.Green or T.Red)
+end)
+Dropdown(trackDrawer, "Target Source", "Sumber target yang dipakai peluru untuk melacak", {"AimLock", "MouseFOV", "Closest"}, Config.TargetSource, function(v)
+    Config.TargetSource = v
+end)
+Dropdown(trackDrawer, "Hit Part Choice", "Bagian tubuh yang dituju oleh peluru", {"Head", "Torso", "Random"}, Config.SilentAimHitPart, function(v)
+    Config.SilentAimHitPart = v
+end)
+Slider(trackDrawer, "Hit Chance", "Persentase ketepatan peluru membelok", 10, 100, Config.SilentAimHitChance, "%", function(v)
+    Config.SilentAimHitChance = v
+end)
+Toggle(trackDrawer, "Bullet Prediction Lead", "Hitung kecepatan gerak musuh agar tembakan tidak meleset", Config.Prediction, function(v)
+    Config.Prediction = v
+end)
+Slider(trackDrawer, "Prediction Delay Factor", "Kompensasi lead peluru dalam detik", 0.05, 0.40, Config.PredictionFactor, "s", function(v)
+    Config.PredictionFactor = v
+end)
+Toggle(trackDrawer, "Homing Physical Projectiles", "Belokkan peluru fisik (FastCast / Projectile) di udara", Config.HomingPhysicalProjectiles, function(v)
+    Config.HomingPhysicalProjectiles = v
+end)
+Toggle(trackDrawer, "Laser Neon Tracer Beam", "Garis laser neon saat peluru berhasil membelok", Config.BulletTracers, function(v)
+    Config.BulletTracers = v
 end)
 
-local ballisticsDrawer = Drawer(trackingPage, "Ballistics Tuning", "Prediction factor, homing, and tracer beams")
-CycleButton(ballisticsDrawer.Body, "Bullet Target Source", "Where silent aim draws target from", {"AimLock", "MouseFOV", "Closest"}, 1, function(v) Config.BulletTargetSource = v end)
-CycleButton(ballisticsDrawer.Body, "Bullet Target Part", "Specific part to redirect hits to", {"Head", "Torso", "Random"}, 1, function(v) Config.BulletTargetPart = v end)
-Slider(ballisticsDrawer.Body, "Hit Chance", "Percentage of shots redirected", 10, 100, 100, "%", function(v) Config.BulletHitChance = v end)
-Toggle(ballisticsDrawer.Body, "Prediction Lead", "Calculates target velocity compensation", true, function(v) Config.BulletPrediction = v end)
-Slider(ballisticsDrawer.Body, "Prediction Delay Factor", "Lead calculation weight", 0.05, 0.35, 0.13, "s", function(v) Config.BulletPredictionFactor = v end)
-Toggle(ballisticsDrawer.Body, "Homing Physical Projectiles", "Curved trajectory for physical projectile parts", true, function(v) Config.BulletHomingProjectiles = v end)
-Toggle(ballisticsDrawer.Body, "Laser Tracer Beam", "Draws visual neon tracer from barrel to hit", true, function(v) Config.BulletTracerEnabled = v end)
-task.defer(ballisticsDrawer.Refresh)
+local shootDrawer = Drawer(trackingPage, "🔫 TriggerBot (Auto Shoot)", "Tembak otomatis ketika target berada dalam bidikan", false, "🔫")
+Toggle(shootDrawer, "Auto Shoot (TriggerBot)", "Senjata otomatis menembak saat musuh terbidik", Config.AutoShoot, function(v)
+    Config.AutoShoot = v
+end)
+Toggle(shootDrawer, "Wall Check Obstacle Filter", "Hanya tembak jika tidak ada dinding/tembok penghalang", Config.WallCheck, function(v)
+    Config.WallCheck = v
+end)
+Slider(shootDrawer, "Fire Delay (Jeda Tembak)", "Cooldown jeda tembakan otomatis dalam milidetik", 50, 500, math.floor(Config.AutoShootDelay * 1000), "ms", function(v)
+    Config.AutoShootDelay = v / 1000
+end)
 
-Section(trackingPage, "TriggerBot", "Automated weapon firing")
-local autoShootDrawer = Drawer(trackingPage, "Auto Shoot Setup", "Auto-click / Tool activation with obstacle wallcheck")
-Toggle(autoShootDrawer.Body, "Auto Shoot (TriggerBot)", "Fires weapon automatically when enemy in sight", false, function(v) Config.AutoShootEnabled = v end)
-Toggle(autoShootDrawer.Body, "Wall Check Obstacle Filter", "Only fire when target has direct line-of-sight", true, function(v) Config.AutoShootWallCheck = v end)
-Slider(autoShootDrawer.Body, "Fire Delay", "Cooldown between automatic shots in milliseconds", 50, 400, 100, "ms", function(v) Config.AutoShootDelayMs = v end)
-task.defer(autoShootDrawer.Refresh)
-
--- 4. VISUAL PAGE
+-- 4. VISUAL PAGE (ESP Highlights, FOV Circle, Crosshair, Camera FOV)
 local visualPage = Page("Visual")
-PageHeader(visualPage, "VISUAL", "ESP & HUD Overlays", "Tactical silhouettes, HUD reticle and FOV rings.")
+PageHeader(visualPage, "VISUAL", "ESP & HUD Overlays", "Siluet musuh tembus dinding, lingkaran FOV, dan reticle HUD.")
 
-Section(visualPage, "ESP Overlays", "Full-map enemy information")
-Toggle(visualPage, "Enemy ESP Highlights", "Draws bounding silhouettes around entities", false, function(v)
-    Config.HighlightAllEnabled = v
+local espDrawer = Drawer(visualPage, "👁️ ESP Enemy Highlights", "Papan info dan siluet musuh tembus pandang", true, "👁️")
+Toggle(espDrawer, "Enemy ESP Highlights", "Tampilkan outline siluet dan papan info nama/darah musuh", Config.TargetHighlightEnabled, function(v)
+    Config.TargetHighlightEnabled = v
     if not v then
         for _, hl in pairs(UnlockedHighlights) do pcall(function() hl:Destroy() end) end
         table.clear(UnlockedHighlights)
@@ -1339,44 +1503,57 @@ Toggle(visualPage, "Enemy ESP Highlights", "Draws bounding silhouettes around en
         table.clear(HighlightInfoBillboards)
     end
 end)
+Dropdown(espDrawer, "ESP Entity Filter", "Kategori entitas yang diberi highlight", {"All", "Player", "NPC"}, Config.ESPFilter, function(v)
+    Config.ESPFilter = v
+end)
+Slider(espDrawer, "Horizontal Radius (X/Z)", "Jarak deteksi samping dan depan-belakang", 50, 1500, Config.RadiusX, " studs", function(v)
+    Config.RadiusX = v; Config.RadiusZ = v
+end)
+Slider(espDrawer, "Vertical Radius (Y)", "Jarak deteksi atas-bawah (ketinggian)", 20, 500, Config.RadiusY, " studs", function(v)
+    Config.RadiusY = v
+end)
 
-local espDrawer = Drawer(visualPage, "ESP Filter & Range", "Configure detection radii and entity categories")
-CycleButton(espDrawer.Body, "ESP Entity Filter", "Filter highlights by category", {"All", "Player", "NPC"}, 1, function(v) Config.HighlightTargetType = v end)
-Slider(espDrawer.Body, "Horizontal Radius (X/Z)", "Lateral detection range in studs", 50, 600, 300, " studs", function(v) Config.HighlightRadiusX = v; Config.HighlightRadiusZ = v end)
-Slider(espDrawer.Body, "Vertical Radius (Y)", "Altitude detection range in studs", 30, 300, 150, " studs", function(v) Config.HighlightRadiusY = v end)
-task.defer(espDrawer.Refresh)
-
-Section(visualPage, "HUD Overlays", "Camera reticles and field of view")
-Toggle(visualPage, "Show FOV Circle", "Renders circle indicating engagement zone", true, function(v) Config.BulletShowFOVCircle = v end)
-Slider(visualPage, "FOV Radius", "Radius of engagement circle in screen pixels", 50, 400, 180, " px", function(v) Config.BulletFOVRadius = v end)
-Toggle(visualPage, "Precision Crosshair", "Minimal high-contrast center HUD reticle", false, function(v) ReticleFrame.Visible = v end)
-Slider(visualPage, "Field of View", "Camera zoom presentation angle", 70, 120, 90, "°", function(v)
+local fovDrawer = Drawer(visualPage, "⭕ HUD & Field of View", "Lingkaran bidikan dan sudut kamera", false, "⭕")
+Toggle(fovDrawer, "Show FOV Circle", "Tampilkan lingkaran batas jangkauan bidik peluru di layar", Config.ShowFOVCircle, function(v)
+    Config.ShowFOVCircle = v
+    FOVCircle.Visible = v
+end)
+Slider(fovDrawer, "FOV Circle Radius", "Ukuran diameter lingkaran FOV dalam pixel", 30, 400, Config.BulletFOVCircleRadius, " px", function(v)
+    Config.BulletFOVCircleRadius = v
+    FOVCircle.Size = UDim2.fromOffset(v * 2, v * 2)
+end)
+Toggle(fovDrawer, "Precision HUD Crosshair", "Reticle bidikan akurat di tengah layar", Config.HUDPrecisionCrosshair, function(v)
+    Config.HUDPrecisionCrosshair = v
+    ReticleFrame.Visible = v
+end)
+Slider(fovDrawer, "Camera Field of View", "Sudut pandang kamera Roblox (FOV zoom)", 60, 120, Config.CameraFOV, "°", function(v)
+    Config.CameraFOV = v
     Camera.FieldOfView = v
 end)
 
--- 5. SETTINGS PAGE
+-- 5. SETTINGS PAGE (Keybinds, Mobile Touch HUD, Diagnostics)
 local settingsPage = Page("Settings")
-PageHeader(settingsPage, "SETTINGS", "Controls & System", "Keybinds, mobile HUD controls and application information.")
+PageHeader(settingsPage, "SETTINGS", "Controls & System", "Pengaturan tombol keyboard, joystick layar sentuh, dan profil.")
 
-Section(settingsPage, "Keybinds", "Keyboard shortcuts")
-Keybind(settingsPage, "Toggle UI Menu", CONFIG.ToggleKey, function(k) CONFIG.ToggleKey = k; Notify("Keybind Set", "UI Toggle: " .. k.Name, T.Cyan) end)
-Keybind(settingsPage, "Aim Lock Toggle Key", Config.ToggleKey, function(k) Config.ToggleKey = k; Notify("Keybind Set", "Aim Lock: " .. k.Name, T.Cyan) end)
-Keybind(settingsPage, "Switch Target Key", Config.SwitchKey, function(k) Config.SwitchKey = k; Notify("Keybind Set", "Switch Target: " .. k.Name, T.Cyan) end)
-Keybind(settingsPage, "Silent Aim Toggle Key", Config.BulletToggleKey, function(k) Config.BulletToggleKey = k; Notify("Keybind Set", "Silent Aim: " .. k.Name, T.Cyan) end)
+local keyDrawer = Drawer(settingsPage, "⌨️ Keybinds Keyboard", "Pengaturan tombol cepat shortcut", true, "⌨️")
+Keybind(keyDrawer, "Toggle UI Menu Key", CONFIG.ToggleKey, function(k) CONFIG.ToggleKey = k; Notify("Keybind Set", "UI Toggle: " .. k.Name, T.Cyan) end)
+Keybind(keyDrawer, "Aim Lock Toggle Key", Config.LockKey, function(k) Config.LockKey = k; Notify("Keybind Set", "Aim Lock: " .. k.Name, T.Cyan) end)
+Keybind(keyDrawer, "Switch Target Key", Config.SwitchKey, function(k) Config.SwitchKey = k; Notify("Keybind Set", "Switch Target: " .. k.Name, T.Cyan) end)
+Keybind(keyDrawer, "Silent Aim Toggle Key", Config.SilentAimKey, function(k) Config.SilentAimKey = k; Notify("Keybind Set", "Silent Aim: " .. k.Name, T.Cyan) end)
 
-Section(settingsPage, "Mobile Controls HUD", "On-screen virtual touch inputs")
-local extControlsToggle = Toggle(settingsPage, "External Joystick & Jump Button", "Persistent HUD controls for mobile touchscreens", false, function(v)
-    Config.ExternalControlsEnabled = v
+local mobileDrawer = Drawer(settingsPage, "🕹️ Mobile Controls HUD", "Kontrol layar sentuh untuk HP", false, "🕹️")
+Toggle(mobileDrawer, "External Joystick & Jump Button", "Munculkan analog dan tombol loncat mandiri di layar HP", Config.MobileControlsEnabled, function(v)
+    Config.MobileControlsEnabled = v
     local ext = SafeParent:FindFirstChild("CombatNovaExternalGui")
     if ext then ext.Enabled = v end
 end)
 
-Section(settingsPage, "About", "Build & execution environment")
-local aboutCard = New("Frame", {Size = UDim2.new(1, 0, 0, 72), BackgroundColor3 = T.Card}, settingsPage)
+local infoDrawer = Drawer(settingsPage, "ℹ️ About & System Info", "Informasi sistem dan status antarmuka", false, "ℹ️")
+local aboutCard = New("Frame", {Size = UDim2.new(1, 0, 0, 72), BackgroundColor3 = T.Panel}, infoDrawer)
 Corner(aboutCard, 7); Stroke(aboutCard, T.Border, 0.3)
 Label(aboutCard, "PROJECT NOVA • COMBAT SYSTEM", UDim2.new(0.55, 0, 0, 14), UDim2.fromOffset(12, 9), F.Bold, T.Text, 10)
 Label(aboutCard, "Hybrid Luau Engine • Delta/gethui Compliant", UDim2.new(0.55, 0, 0, 10), UDim2.fromOffset(12, 24), F.Regular, T.Text2, 7)
-Label(aboutCard, "Universal Combat, Ballistics & Visual Suite", UDim2.new(0.55, 0, 0, 10), UDim2.fromOffset(12, 43), F.Regular, T.Text3, 7)
+Label(aboutCard, "Created by Feath • Delta Mobile & PC Suite", UDim2.new(0.55, 0, 0, 10), UDim2.fromOffset(12, 43), F.Regular, T.Text3, 7)
 Label(aboutCard, "600 × 410 Desktop UI layout", UDim2.new(1, -24, 0, 10), UDim2.fromOffset(12, 57), F.Regular, T.Text3, 7)
 
 -- ============================================================================
@@ -1440,6 +1617,7 @@ Label(footer, "COMBAT NOVA  /  v2.6", UDim2.fromOffset(160, CONFIG.FooterH), UDi
 -- 14. PAGE SWITCHING & DRAGGING
 -- ============================================================================
 local function SwitchPage(name)
+    CloseAllDropdowns()
     if not pages[name] then return end
     activePage = name
     for id, data in pairs(nav) do
