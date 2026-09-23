@@ -143,6 +143,38 @@ local CONFIG = {
 local T, F = CONFIG.Theme, CONFIG.Font
 local Config = CONFIG.Combat
 Config.BreakDistance = Config.MaxLockDistance + 20
+Config.AimLockEnabled = false
+Config.SilentAimEnabled = Config.BulletTrackingEnabled or false
+Config.TargetSource = Config.BulletTargetSource or "AimLock"
+Config.SilentAimHitPart = Config.BulletTargetPart or "Head"
+Config.SilentAimHitChance = Config.BulletHitChance or 100
+Config.Prediction = Config.BulletPrediction ~= false
+Config.PredictionFactor = Config.BulletPredictionFactor or 0.13
+Config.HomingPhysicalProjectiles = Config.BulletHomingProjectiles ~= false
+Config.BulletTracers = Config.BulletTracerEnabled ~= false
+Config.SilentAimKey = Config.BulletToggleKey or Enum.KeyCode.T
+Config.AutoShoot = Config.AutoShootEnabled or false
+Config.WallCheck = Config.AutoShootWallCheck ~= false
+Config.AutoShootDelayMs = Config.AutoShootDelayMs or 100
+Config.AutoShootDelay = (Config.AutoShootDelayMs or 100) / 1000
+Config.TargetHighlightEnabled = Config.HighlightAllEnabled or false
+Config.ESPFilter = Config.HighlightTargetType or "All"
+Config.RadiusX = Config.HighlightRadiusX or 300
+Config.RadiusY = Config.HighlightRadiusY or 150
+Config.RadiusZ = Config.HighlightRadiusZ or 300
+Config.ShowFOVCircle = Config.BulletShowFOVCircle ~= false
+Config.BulletFOVCircleRadius = Config.BulletFOVRadius or 180
+Config.HUDPrecisionCrosshair = false
+Config.CameraFOV = 90
+Config.CameraSmoothness = Config.CameraSmoothing or 0.52
+Config.MaxAimDistance = Config.MaxLockDistance or 80
+Config.AutoFaceTarget = Config.AutoFaceCharacter ~= false
+Config.SwitchMode = Config.TargetSwitchMode or "Dynamic"
+Config.LockKey = Config.ToggleKey or Enum.KeyCode.Q
+Config.SpeedBoost = Config.SpeedBoostEnabled or false
+Config.SpeedMultiplier = Config.SpeedBoostMultiplier or 2.0
+Config.BunnyHop = Config.BunnyHopEnabled or false
+Config.MobileControlsEnabled = Config.ExternalControlsEnabled or false
 _G.FeathCombatConfig = Config
 
 -- State Variables
@@ -445,6 +477,11 @@ local readyLabel = Label(readyPill, "READY", UDim2.new(1, -17, 1, 0), UDim2.from
 local titleRight = New("Frame", {Size = UDim2.fromOffset(126, 1), Position = UDim2.new(1, -134, 0.5, 0), BackgroundTransparency = 1}, titleBar)
 Layout(titleRight, Enum.FillDirection.Horizontal, 4, Enum.HorizontalAlignment.Right, Enum.VerticalAlignment.Center)
 
+local minimized = false
+local visible = true
+local SetMinimized, SetVisible
+local SwitchPage
+
 local function WindowBtn(text, hoverColor)
     local b = Button(titleRight, {Size = UDim2.fromOffset(30, 28), BackgroundTransparency = 1, Text = text, TextColor3 = T.Text3, Font = F.Semi, TextSize = 13})
     Corner(b, 5)
@@ -455,6 +492,26 @@ end
 local minBtn = WindowBtn("—", T.Text)
 local maxBtn = WindowBtn("□", T.Blue2)
 local closeBtn = WindowBtn("×", T.Red)
+
+minBtn.MouseButton1Click:Connect(function() if SetMinimized then SetMinimized(not minimized) end end)
+maxBtn.MouseButton1Click:Connect(function() Notify("Layout", "Compact desktop layout 600 × 410.", T.Cyan) end)
+closeBtn.MouseButton1Click:Connect(function() if SetVisible then SetVisible(false) end end)
+
+-- TitleBar Dragging
+local dragging = false; local dragStart; local startPos
+titleBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true; dragStart = input.Position; startPos = window.Position
+        input.Changed:Connect(function() if input.UserInputState == Enum.UserInputState.End then dragging = false end end)
+    end
+end)
+titleBar.InputChanged:Connect(function(input)
+    if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local d = input.Position - dragStart
+        local p = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
+        window.Position = p; shadow.Position = p
+    end
+end)
 
 -- ============================================================================
 -- 7. BODY & SIDEBAR NAVIGATION
@@ -513,6 +570,9 @@ local function NavButton(item)
     b.MouseLeave:Connect(function()
         if activePage ~= item.id then Tween(b, 0.1, {BackgroundTransparency = 1}); Tween(icon, 0.1, {TextColor3 = T.Text3}); Tween(text, 0.1, {TextColor3 = T.Text2}) end
     end)
+    b.MouseButton1Click:Connect(function()
+        if SwitchPage then SwitchPage(item.id) end
+    end)
     return b
 end
 for _, item in ipairs(navData) do NavButton(item) end
@@ -547,6 +607,26 @@ local function Page(name)
     Layout(p, nil, 8)
     pages[name] = p
     return p
+end
+
+SwitchPage = function(name)
+    CloseAllDropdowns()
+    if not pages[name] then return end
+    activePage = name
+    for id, data in pairs(nav) do
+        local on = (id == name)
+        Tween(data.button, 0.16, {BackgroundColor3 = on and T.DeepBlue or T.Surface, BackgroundTransparency = on and 0.12 or 1})
+        Tween(data.bar, 0.16, {BackgroundTransparency = on and 0 or 1})
+        Tween(data.icon, 0.16, {TextColor3 = on and T.Blue2 or T.Text3})
+        Tween(data.text, 0.16, {TextColor3 = on and T.Text or T.Text2})
+        Tween(data.dot, 0.16, {BackgroundTransparency = on and 0 or 1})
+    end
+    for id, p in pairs(pages) do p.Visible = (id == name) end
+    local p = pages[name]
+    if p then
+        p.Position = UDim2.new(0, 8, 0, 0)
+        Tween(p, 0.18, {Position = UDim2.new(0, 0, 0, 0)})
+    end
 end
 
 local function Section(parent, title, sub)
@@ -1485,7 +1565,8 @@ end)
 Toggle(shootDrawer, "Wall Check Obstacle Filter", "Hanya tembak jika tidak ada dinding/tembok penghalang", Config.WallCheck, function(v)
     Config.WallCheck = v
 end)
-Slider(shootDrawer, "Fire Delay (Jeda Tembak)", "Cooldown jeda tembakan otomatis dalam milidetik", 50, 500, math.floor(Config.AutoShootDelay * 1000), "ms", function(v)
+Slider(shootDrawer, "Fire Delay (Jeda Tembak)", "Cooldown jeda tembakan otomatis dalam milidetik", 50, 500, Config.AutoShootDelayMs or 100, "ms", function(v)
+    Config.AutoShootDelayMs = v
     Config.AutoShootDelay = v / 1000
 end)
 
@@ -1542,10 +1623,27 @@ Keybind(keyDrawer, "Switch Target Key", Config.SwitchKey, function(k) Config.Swi
 Keybind(keyDrawer, "Silent Aim Toggle Key", Config.SilentAimKey, function(k) Config.SilentAimKey = k; Notify("Keybind Set", "Silent Aim: " .. k.Name, T.Cyan) end)
 
 local mobileDrawer = Drawer(settingsPage, "🕹️ Mobile Controls HUD", "Kontrol layar sentuh untuk HP", false, "🕹️")
-Toggle(mobileDrawer, "External Joystick & Jump Button", "Munculkan analog dan tombol loncat mandiri di layar HP", Config.MobileControlsEnabled, function(v)
+Toggle(mobileDrawer, "External Joystick & Jump Button", "Munculkan analog dan tombol loncat mandiri di layar HP", Config.ExternalControlsEnabled, function(v)
+    Config.ExternalControlsEnabled = v
     Config.MobileControlsEnabled = v
     local ext = SafeParent:FindFirstChild("CombatNovaExternalGui")
     if ext then ext.Enabled = v end
+end)
+Slider(mobileDrawer, "Ukuran Joystick Analog", "Ukuran diameter analog virtual joystick (pixel)", 80, 180, Config.ExternalControlsSize or 120, " px", function(v)
+    Config.ExternalControlsSize = v
+    local ext = SafeParent:FindFirstChild("CombatNovaExternalGui")
+    if ext then
+        local b = ext:FindFirstChild("ExternalJoystickBase", true)
+        if b then b.Size = UDim2.fromOffset(v, v); b.Position = UDim2.new(0, 40, 1, -v - 40) end
+    end
+end)
+Slider(mobileDrawer, "Ukuran Tombol Jump", "Ukuran diameter tombol loncat (pixel)", 50, 120, Config.ExternalJumpSize or 72, " px", function(v)
+    Config.ExternalJumpSize = v
+    local ext = SafeParent:FindFirstChild("CombatNovaExternalGui")
+    if ext then
+        local j = ext:FindFirstChild("ExternalJumpButton", true)
+        if j then j.Size = UDim2.fromOffset(v, v); j.Position = UDim2.new(1, -v - 40, 1, -v - 55) end
+    end
 end)
 
 local infoDrawer = Drawer(settingsPage, "ℹ️ About & System Info", "Informasi sistem dan status antarmuka", false, "ℹ️")
@@ -1571,12 +1669,14 @@ pcall(function()
     local extFrame = New("Frame", {Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1}, extGui)
     local joySize = Config.ExternalControlsSize or 120
     local jBase = New("Frame", {
+        Name = "ExternalJoystickBase",
         Size = UDim2.fromOffset(joySize, joySize),
         Position = UDim2.new(0, 40, 1, -joySize - 40),
         BackgroundColor3 = Color3.fromRGB(15, 18, 26), BackgroundTransparency = 0.45,
     }, extFrame); Corner(jBase, 999); Stroke(jBase, T.Blue, 0.35, 2)
 
     local jKnob = New("Frame", {
+        Name = "ExternalJoystickKnob",
         Size = UDim2.fromOffset(math.floor(joySize * 0.44), math.floor(joySize * 0.44)),
         Position = UDim2.fromScale(0.5, 0.5), AnchorPoint = Vector2.new(0.5, 0.5),
         BackgroundColor3 = T.Blue, BackgroundTransparency = 0.2,
@@ -1584,6 +1684,7 @@ pcall(function()
 
     local jumpSize = Config.ExternalJumpSize or 72
     local jBtn = Button(extFrame, {
+        Name = "ExternalJumpButton",
         Size = UDim2.fromOffset(jumpSize, jumpSize),
         Position = UDim2.new(1, -jumpSize - 40, 1, -jumpSize - 55),
         BackgroundColor3 = Color3.fromRGB(15, 18, 26), BackgroundTransparency = 0.35,
@@ -1591,16 +1692,104 @@ pcall(function()
     })
     Corner(jBtn, 999); Stroke(jBtn, T.Blue, 0.3, 2)
 
+    local thumbstickVector = Vector2.zero
+    local activeJoystickTouch = nil
+    local isJumping = false
+
+    local function UpdateKnobPosition(inputPos)
+        pcall(function()
+            local basePos = jBase.AbsolutePosition
+            local baseSize = jBase.AbsoluteSize
+            local center = basePos + (baseSize / 2)
+            local maxRadius = math.max((baseSize.X / 2) - 4, 1)
+
+            local delta = inputPos - center
+            local dist = delta.Magnitude
+            if dist > maxRadius then
+                delta = delta.Unit * maxRadius
+            end
+
+            jKnob.Position = UDim2.new(0.5, delta.X, 0.5, delta.Y)
+            thumbstickVector = Vector2.new(delta.X / maxRadius, delta.Y / maxRadius)
+        end)
+    end
+
+    local function ResetKnobPosition()
+        pcall(function()
+            activeJoystickTouch = nil
+            thumbstickVector = Vector2.zero
+            Tween(jKnob, 0.12, {Position = UDim2.new(0.5, 0, 0.5, 0)})
+            local char = LocalPlayer.Character
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            if hum then hum:Move(Vector3.zero, false) end
+        end)
+    end
+
+    jBase.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+            if not activeJoystickTouch then
+                activeJoystickTouch = input
+                UpdateKnobPosition(Vector2.new(input.Position.X, input.Position.Y))
+            end
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if activeJoystickTouch and input == activeJoystickTouch then
+            UpdateKnobPosition(Vector2.new(input.Position.X, input.Position.Y))
+        end
+    end)
+
+    UserInputService.InputEnded:Connect(function(input)
+        if activeJoystickTouch and input == activeJoystickTouch then
+            ResetKnobPosition()
+        end
+    end)
+
     jBtn.InputBegan:Connect(function(i)
         if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
-            local myChar = LocalPlayer.Character
-            local hum = myChar and myChar:FindFirstChildOfClass("Humanoid")
-            if hum then hum.Jump = true end
+            isJumping = true
+            local char = LocalPlayer.Character
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            if hum and hum.Health > 0 then
+                hum.Jump = true
+                hum:ChangeState(Enum.HumanoidStateType.Jumping)
+            end
         end
+    end)
+
+    jBtn.InputEnded:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+            isJumping = false
+        end
+    end)
+
+    RunService.RenderStepped:Connect(function()
+        pcall(function()
+            if not Config.ExternalControlsEnabled then return end
+            local char = LocalPlayer.Character
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            if not hum or hum.Health <= 0 then return end
+
+            if thumbstickVector and thumbstickVector.Magnitude > 0.05 then
+                local cam = workspace.CurrentCamera
+                if cam then
+                    local look = cam.CFrame.LookVector
+                    local right = cam.CFrame.RightVector
+                    local flatLook = Vector3.new(look.X, 0, look.Z).Unit
+                    local flatRight = Vector3.new(right.X, 0, right.Z).Unit
+                    local moveDir = (flatRight * thumbstickVector.X) + (flatLook * (-thumbstickVector.Y))
+                    hum:Move(moveDir, false)
+                end
+            end
+
+            if isJumping then
+                hum.Jump = true
+            end
+        end)
     end)
 end)
 
--- ============================================================================
 -- 13. FOOTER & TELEMETRY
 -- ============================================================================
 local footer = New("Frame", {
@@ -1614,48 +1803,14 @@ local fpsPingLabel = Label(footer, "FPS --   •   PING --", UDim2.fromOffset(14
 Label(footer, "COMBAT NOVA  /  v2.6", UDim2.fromOffset(160, CONFIG.FooterH), UDim2.new(1, -170, 0, 0), F.Regular, T.Text3, 7, Enum.TextXAlignment.Right)
 
 -- ============================================================================
--- 14. PAGE SWITCHING & DRAGGING
+-- 14. INITIAL ACTIVATION & WINDOW CONTROLS
 -- ============================================================================
-local function SwitchPage(name)
-    CloseAllDropdowns()
-    if not pages[name] then return end
-    activePage = name
-    for id, data in pairs(nav) do
-        local on = id == name
-        Tween(data.button, 0.16, {BackgroundColor3 = on and T.DeepBlue or T.Surface, BackgroundTransparency = on and 0.12 or 1})
-        Tween(data.bar, 0.16, {BackgroundTransparency = on and 0 or 1})
-        Tween(data.icon, 0.16, {TextColor3 = on and T.Blue2 or T.Text3})
-        Tween(data.text, 0.16, {TextColor3 = on and T.Text or T.Text2})
-        Tween(data.dot, 0.16, {BackgroundTransparency = on and 0 or 1})
-    end
-    for id, p in pairs(pages) do p.Visible = id == name end
-    local p = pages[name]; p.Position = UDim2.new(0, 8, 0, 0); Tween(p, 0.18, {Position = UDim2.new(0, 0, 0, 0)})
-end
-for id, data in pairs(nav) do data.button.MouseButton1Click:Connect(function() SwitchPage(id) end) end
-SwitchPage("Dashboard")
-
--- TitleBar Dragging
-local dragging = false; local dragStart; local startPos; local dragInput
-titleBar.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        dragging = true; dragStart = input.Position; startPos = window.Position
-        input.Changed:Connect(function() if input.UserInputState == Enum.UserInputState.End then dragging = false end end)
-    end
-end)
-titleBar.InputChanged:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then dragInput = input end
-end)
-UserInputService.InputChanged:Connect(function(input)
-    if dragging and input == dragInput then
-        local d = input.Position - dragStart
-        local p = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
-        window.Position = p; shadow.Position = p
-    end
+pcall(function()
+    SwitchPage("Dashboard")
 end)
 
--- Minimize & Close
-local minimized = false
-local function SetMinimized(v)
+-- Minimize & Close Handlers
+SetMinimized = function(v)
     minimized = v
     if v then
         body.Visible = false; footer.Visible = false
@@ -1667,13 +1822,11 @@ local function SetMinimized(v)
         task.delay(0.18, function() if not minimized then body.Visible = true; footer.Visible = true end end)
     end
 end
-minBtn.MouseButton1Click:Connect(function() SetMinimized(not minimized) end)
-maxBtn.MouseButton1Click:Connect(function() Notify("Layout", "Compact desktop layout 600 × 410.", T.Cyan) end)
 
-local visible = true
+
 local floating
 
-local function SetVisible(v)
+SetVisible = function(v)
     visible = v
     if not visible then
         Tween(window, 0.18, {BackgroundTransparency = 1, Size = UDim2.fromOffset(CONFIG.Window.X * 0.98, CONFIG.Window.Y * 0.98)})
@@ -1691,7 +1844,7 @@ local function SetVisible(v)
         Tween(window, 0.18, {Size = UDim2.fromOffset(CONFIG.Window.X, CONFIG.Window.Y)})
     end
 end
-closeBtn.MouseButton1Click:Connect(function() SetVisible(false) end)
+
 
 -- Mobile & PC Draggable Floating Toggle Button
 floating = Button(gui, {
