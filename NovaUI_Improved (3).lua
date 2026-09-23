@@ -1,0 +1,720 @@
+--[[
+    PROJECT NOVA — UI OVERHAUL
+    Native Roblox / Luau UI for StarterPlayerScripts > LocalScript
+
+    Visual direction:
+      - premium futuristic desktop utility
+      - dark navy / electric blue
+      - richer hierarchy, denser information layout
+      - custom controls, status tiles, segmented navigation
+      - subtle depth, gradients, strokes and micro-interactions
+
+    NOTE:
+      This version is intentionally UI-focused. Feature callbacks are demo/state
+      callbacks; connect them to gameplay systems you own.
+--]]
+
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local Players = game:GetService("Players")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+local CONFIG = {
+    Title = "PROJECT NOVA",
+    Version = "2.5",
+    Window = Vector2.new(600, 410),
+    Sidebar = 148,
+    TitleH = 42,
+    FooterH = 25,
+    ToggleKey = Enum.KeyCode.RightShift,
+    Anim = { Fast = .12, Normal = .18, Slow = .26 },
+    Theme = {
+        Window = Color3.fromRGB(6, 10, 18),
+        Surface = Color3.fromRGB(8, 13, 23),
+        Surface2 = Color3.fromRGB(10, 17, 29),
+        Card = Color3.fromRGB(12, 20, 34),
+        Card2 = Color3.fromRGB(15, 24, 40),
+        Hover = Color3.fromRGB(18, 31, 51),
+        Blue = Color3.fromRGB(44, 132, 255),
+        Blue2 = Color3.fromRGB(80, 164, 255),
+        Cyan = Color3.fromRGB(79, 211, 255),
+        Green = Color3.fromRGB(48, 214, 151),
+        Yellow = Color3.fromRGB(242, 185, 74),
+        Red = Color3.fromRGB(239, 91, 108),
+        Text = Color3.fromRGB(241, 245, 252),
+        Text2 = Color3.fromRGB(150, 164, 184),
+        Text3 = Color3.fromRGB(89, 105, 129),
+        Border = Color3.fromRGB(26, 43, 67),
+        Border2 = Color3.fromRGB(37, 59, 89),
+        DeepBlue = Color3.fromRGB(11, 31, 62),
+        Track = Color3.fromRGB(18, 27, 42),
+        White = Color3.fromRGB(255,255,255),
+        Black = Color3.fromRGB(0,0,0),
+    },
+    Font = {
+        Regular = Enum.Font.Gotham,
+        Medium = Enum.Font.GothamMedium,
+        Semi = Enum.Font.GothamSemibold,
+        Bold = Enum.Font.GothamBold,
+    },
+}
+local T, F = CONFIG.Theme, CONFIG.Font
+
+local function New(className, props, parent)
+    local obj = Instance.new(className)
+    for k, v in pairs(props or {}) do obj[k] = v end
+    obj.Parent = parent
+    return obj
+end
+
+local function Corner(obj, px)
+    return New("UICorner", {CornerRadius = UDim.new(0, px or 6)}, obj)
+end
+
+local function Stroke(obj, color, transparency, thickness)
+    return New("UIStroke", {
+        Color = color or T.Border,
+        Transparency = transparency == nil and .2 or transparency,
+        Thickness = thickness or 1,
+        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+    }, obj)
+end
+
+local function Padding(obj, l, r, t, b)
+    return New("UIPadding", {
+        PaddingLeft = UDim.new(0,l or 0), PaddingRight = UDim.new(0,r or 0),
+        PaddingTop = UDim.new(0,t or 0), PaddingBottom = UDim.new(0,b or 0),
+    }, obj)
+end
+
+local function Layout(obj, direction, gap, horizontal, vertical)
+    return New("UIListLayout", {
+        FillDirection = direction or Enum.FillDirection.Vertical,
+        Padding = UDim.new(0, gap or 6),
+        HorizontalAlignment = horizontal or Enum.HorizontalAlignment.Left,
+        VerticalAlignment = vertical or Enum.VerticalAlignment.Top,
+        SortOrder = Enum.SortOrder.LayoutOrder,
+    }, obj)
+end
+
+local function Tween(obj, duration, props, style)
+    local info = TweenInfo.new(duration or CONFIG.Anim.Normal, style or Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+    local tw = TweenService:Create(obj, info, props)
+    tw:Play()
+    return tw
+end
+
+local function Label(parent, text, size, pos, font, color, textSize, align)
+    return New("TextLabel", {
+        BackgroundTransparency = 1,
+        Size = size or UDim2.new(1,0,0,20),
+        Position = pos or UDim2.new(),
+        Text = text or "",
+        Font = font or F.Regular,
+        TextColor3 = color or T.Text,
+        TextSize = textSize or 12,
+        TextXAlignment = align or Enum.TextXAlignment.Left,
+        TextYAlignment = Enum.TextYAlignment.Center,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+    }, parent)
+end
+
+local function Button(parent, props)
+    props.AutoButtonColor = false
+    props.BorderSizePixel = 0
+    return New("TextButton", props, parent)
+end
+
+-- ================================================================
+-- ROOT
+-- ================================================================
+local old = playerGui:FindFirstChild("ProjectNova_Overhaul")
+if old then old:Destroy() end
+
+local gui = New("ScreenGui", {
+    Name = "ProjectNova_Overhaul",
+    ResetOnSpawn = false,
+    IgnoreGuiInset = true,
+    ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+    DisplayOrder = 50,
+}, playerGui)
+
+local backdrop = New("Frame", {
+    Size = UDim2.fromScale(1,1), BackgroundTransparency = 1,
+}, gui)
+
+-- subtle atmospheric blobs
+local glow1 = New("Frame", {
+    Size = UDim2.fromOffset(360,360), Position = UDim2.new(.5,-180,.5,-210),
+    BackgroundColor3 = T.Blue, BackgroundTransparency = .985,
+}, backdrop)
+Corner(glow1,180)
+local glow2 = New("Frame", {
+    Size = UDim2.fromOffset(260,260), Position = UDim2.new(.5,100,.5,50),
+    BackgroundColor3 = T.Cyan, BackgroundTransparency = .99,
+}, backdrop)
+Corner(glow2,130)
+
+local shadow = New("Frame", {
+    Size = UDim2.fromOffset(CONFIG.Window.X+22, CONFIG.Window.Y+22),
+    Position = UDim2.fromScale(.5,.5), AnchorPoint = Vector2.new(.5,.5),
+    BackgroundColor3 = T.Black, BackgroundTransparency = .48,
+    ZIndex = 2,
+}, gui)
+Corner(shadow, 12)
+
+local window = New("Frame", {
+    Size = UDim2.fromOffset(CONFIG.Window.X, CONFIG.Window.Y),
+    Position = UDim2.fromScale(.5,.5), AnchorPoint = Vector2.new(.5,.5),
+    BackgroundColor3 = T.Window, ClipsDescendants = true, ZIndex = 3,
+}, gui)
+Corner(window, 9)
+local windowStroke = Stroke(window, T.Border2, .15, 1)
+
+local windowGradient = New("UIGradient", {
+    Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(9,15,26)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(5,9,16)),
+    }),
+    Rotation = 90,
+}, window)
+
+-- top ambient wash
+local topWash = New("Frame", {
+    Size = UDim2.new(1,0,0,110), BackgroundColor3 = T.Blue, BackgroundTransparency = .965,
+    ZIndex = 4,
+}, window)
+New("UIGradient", {
+    Rotation = 90,
+    Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0,0),
+        NumberSequenceKeypoint.new(.55,.55),
+        NumberSequenceKeypoint.new(1,1),
+    }),
+}, topWash)
+
+-- ================================================================
+-- TITLE BAR
+-- ================================================================
+local titleBar = New("Frame", {
+    Size = UDim2.new(1,0,0,CONFIG.TitleH),
+    BackgroundColor3 = T.Surface,
+    BackgroundTransparency = .04,
+    ZIndex = 20,
+}, window)
+
+New("Frame", {Size=UDim2.new(1,0,0,1), Position=UDim2.new(0,0,1,-1), BackgroundColor3=T.Border, ZIndex=21}, titleBar)
+New("Frame", {Size=UDim2.new(0,150,0,1), Position=UDim2.new(0,12,1,-1), BackgroundColor3=T.Blue, BackgroundTransparency=.35, ZIndex=22}, titleBar)
+
+local titleLeft = New("Frame", {Size=UDim2.new(1,-180,1,0), BackgroundTransparency=1}, titleBar)
+Layout(titleLeft, Enum.FillDirection.Horizontal, 8, Enum.HorizontalAlignment.Left, Enum.VerticalAlignment.Center)
+Padding(titleLeft, 12,0,0,0)
+
+local appIcon = New("Frame", {Size=UDim2.fromOffset(25,25), BackgroundColor3=T.DeepBlue}, titleLeft)
+Corner(appIcon,7); Stroke(appIcon,T.Blue,.25)
+Label(appIcon,"✦",UDim2.fromScale(1,1),nil,F.Bold,T.Blue2,13,Enum.TextXAlignment.Center)
+
+Label(titleLeft,CONFIG.Title,UDim2.fromOffset(105,25),nil,F.Bold,T.Text,12)
+local ver = New("Frame", {Size=UDim2.fromOffset(38,18), BackgroundColor3=T.DeepBlue}, titleLeft)
+Corner(ver,4); Stroke(ver,T.Blue,.5)
+Label(ver,CONFIG.Version,UDim2.fromScale(1,1),nil,F.Semi,T.Blue2,8,Enum.TextXAlignment.Center)
+
+local readyPill = New("Frame", {Size=UDim2.fromOffset(62,18), BackgroundColor3=T.Card}, titleLeft)
+Corner(readyPill,9); Stroke(readyPill,T.Border,.3)
+local readyDot = New("Frame", {Size=UDim2.fromOffset(5,5), Position=UDim2.new(0,7,.5,-2), BackgroundColor3=T.Green}, readyPill)
+Corner(readyDot,3)
+Label(readyPill,"READY",UDim2.new(1,-17,1,0),UDim2.fromOffset(16,0),F.Bold,T.Green,7)
+
+local titleRight = New("Frame", {Size=UDim2.fromOffset(126,1), Position=UDim2.new(1,-134,.5,0), BackgroundTransparency=1}, titleBar)
+Layout(titleRight,Enum.FillDirection.Horizontal,4,Enum.HorizontalAlignment.Right,Enum.VerticalAlignment.Center)
+
+local function WindowBtn(text, hoverColor)
+    local b = Button(titleRight,{Size=UDim2.fromOffset(30,28),BackgroundTransparency=1,Text=text,TextColor3=T.Text3,Font=F.Semi,TextSize=13})
+    Corner(b,5)
+    b.MouseEnter:Connect(function() Tween(b,.1,{BackgroundColor3=T.Card2,BackgroundTransparency=0,TextColor3=hoverColor or T.Text}) end)
+    b.MouseLeave:Connect(function() Tween(b,.1,{BackgroundTransparency=1,TextColor3=T.Text3}) end)
+    return b
+end
+local minBtn = WindowBtn("—",T.Text)
+local maxBtn = WindowBtn("□",T.Blue2)
+local closeBtn = WindowBtn("×",T.Red)
+
+-- ================================================================
+-- BODY / SIDEBAR
+-- ================================================================
+local body = New("Frame", {
+    Size = UDim2.new(1,0,1,-CONFIG.TitleH-CONFIG.FooterH),
+    Position = UDim2.new(0,0,0,CONFIG.TitleH),
+    BackgroundTransparency = 1,
+    ZIndex = 5,
+}, window)
+
+local sidebar = New("Frame", {
+    Size = UDim2.new(0,CONFIG.Sidebar,1,0),
+    BackgroundColor3 = T.Surface,
+    BackgroundTransparency = .08,
+    ZIndex = 6,
+}, body)
+New("Frame", {Size=UDim2.new(0,1,1,0), Position=UDim2.new(1,-1,0,0), BackgroundColor3=T.Border, ZIndex=7}, sidebar)
+Padding(sidebar,10,10,12,10)
+local sideList = Layout(sidebar,nil,5)
+
+-- mini profile / workspace block
+local workspaceCard = New("Frame", {Size=UDim2.new(1,0,0,58), BackgroundColor3=T.Card}, sidebar)
+Corner(workspaceCard,7); Stroke(workspaceCard,T.Border,.3)
+local wsAccent = New("Frame", {Size=UDim2.new(0,2,.62,0), Position=UDim2.new(0,0,.19,0), BackgroundColor3=T.Blue}, workspaceCard)
+Corner(wsAccent,1)
+Label(workspaceCard,"WORKSPACE",UDim2.new(1,-28,0,11),UDim2.fromOffset(14,8),F.Bold,T.Text3,7)
+Label(workspaceCard,"NOVA / DEFAULT",UDim2.new(1,-28,0,15),UDim2.fromOffset(14,20),F.Semi,T.Text,10)
+Label(workspaceCard,"Local session",UDim2.new(1,-28,0,12),UDim2.fromOffset(14,36),F.Regular,T.Text3,8)
+local wsDot = New("Frame",{Size=UDim2.fromOffset(6,6),Position=UDim2.new(1,-14,.5,-3),BackgroundColor3=T.Green},workspaceCard); Corner(wsDot,3)
+
+local navLabel = Label(sidebar,"NAVIGATION",UDim2.new(1,0,0,16),nil,F.Bold,T.Text3,7)
+navLabel.LayoutOrder = 2
+
+local navContainer = New("Frame", {Size=UDim2.new(1,0,0,142), BackgroundTransparency=1, LayoutOrder=3}, sidebar)
+local navLayout = Layout(navContainer,nil,4)
+
+local navData = {
+    {id="Dashboard", icon="⌂", text="Dashboard"},
+    {id="Player", icon="◉", text="Player"},
+    {id="Visual", icon="◌", text="Visual"},
+    {id="Settings", icon="⚙", text="Settings"},
+}
+local nav = {}
+local activePage = "Dashboard"
+
+local function NavButton(item)
+    local b = Button(navContainer,{Size=UDim2.new(1,0,0,31),BackgroundTransparency=1,Text=""})
+    Corner(b,6)
+    local activeBar = New("Frame",{Size=UDim2.new(0,2,.56,0),Position=UDim2.new(0,1,.22,0),BackgroundColor3=T.Blue,BackgroundTransparency=1},b); Corner(activeBar,1)
+    local icon = Label(b,item.icon,UDim2.fromOffset(28,31),UDim2.fromOffset(10,0),F.Bold,T.Text3,13,Enum.TextXAlignment.Center)
+    local text = Label(b,item.text,UDim2.new(1,-52,1,0),UDim2.fromOffset(42,0),F.Semi,T.Text2,10)
+    local dot = New("Frame",{Size=UDim2.fromOffset(4,4),Position=UDim2.new(1,-10,.5,-2),BackgroundColor3=T.Blue,BackgroundTransparency=1},b); Corner(dot,2)
+    nav[item.id] = {button=b,bar=activeBar,icon=icon,text=text,dot=dot}
+    b.MouseEnter:Connect(function()
+        if activePage ~= item.id then Tween(b,.1,{BackgroundColor3=T.Card,BackgroundTransparency=.25}); Tween(icon,.1,{TextColor3=T.Text}); Tween(text,.1,{TextColor3=T.Text}) end
+    end)
+    b.MouseLeave:Connect(function()
+        if activePage ~= item.id then Tween(b,.1,{BackgroundTransparency=1}); Tween(icon,.1,{TextColor3=T.Text3}); Tween(text,.1,{TextColor3=T.Text2}) end
+    end)
+    return b
+end
+for _, item in ipairs(navData) do NavButton(item) end
+
+local systemCard = New("Frame", {Size=UDim2.new(1,0,0,58), BackgroundColor3=T.Card, LayoutOrder=5}, sidebar)
+Corner(systemCard,7); Stroke(systemCard,T.Border,.35)
+Label(systemCard,"SYSTEM STATUS",UDim2.new(1,-24,0,10),UDim2.fromOffset(12,8),F.Bold,T.Text3,7)
+local sysDot = New("Frame",{Size=UDim2.fromOffset(6,6),Position=UDim2.new(0,12,0,28),BackgroundColor3=T.Green},systemCard); Corner(sysDot,3)
+Label(systemCard,"Operational",UDim2.new(1,-30,0,13),UDim2.fromOffset(23,24),F.Semi,T.Text,9)
+Label(systemCard,"UI ENGINE  •  LOCAL",UDim2.new(1,-24,0,10),UDim2.fromOffset(12,40),F.Regular,T.Text3,7)
+
+-- ================================================================
+-- CONTENT
+-- ================================================================
+local content = New("Frame", {
+    Size = UDim2.new(1,-CONFIG.Sidebar,1,0),
+    Position = UDim2.new(0,CONFIG.Sidebar,0,0),
+    BackgroundColor3 = T.Window,
+    ZIndex = 6,
+}, body)
+
+-- technical grid, kept extremely subtle
+for x=0,5 do New("Frame",{Size=UDim2.new(0,1,1,0),Position=UDim2.new(x/6,0,0,0),BackgroundColor3=T.Border,BackgroundTransparency=.94,ZIndex=6},content) end
+for y=0,5 do New("Frame",{Size=UDim2.new(1,0,0,1),Position=UDim2.new(0,0,y/6,0),BackgroundColor3=T.Border,BackgroundTransparency=.95,ZIndex=6},content) end
+
+local pages = {}
+local pageOrder = {}
+local function Page(name)
+    local p = New("ScrollingFrame",{
+        Name=name,Size=UDim2.fromScale(1,1),BackgroundTransparency=1,BorderSizePixel=0,
+        ScrollBarThickness=2,ScrollBarImageColor3=T.Blue,ScrollBarImageTransparency=.55,
+        CanvasSize=UDim2.new(),AutomaticCanvasSize=Enum.AutomaticSize.Y,Visible=false,ZIndex=8,
+    },content)
+    Padding(p,16,16,14,14)
+    Layout(p,nil,8)
+    pages[name]=p; table.insert(pageOrder,name)
+    return p
+end
+
+local function Section(parent,title,sub)
+    local f=New("Frame",{Size=UDim2.new(1,0,0,27),BackgroundTransparency=1},parent)
+    Label(f,title:upper(),UDim2.new(1,-100,0,13),UDim2.fromOffset(0,0),F.Bold,T.Text2,9)
+    if sub then Label(f,sub,UDim2.new(1,-100,0,11),UDim2.fromOffset(0,13),F.Regular,T.Text3,7) end
+    local line=New("Frame",{Size=UDim2.new(1,0,0,1),Position=UDim2.new(0,0,1,-1),BackgroundColor3=T.Border,BackgroundTransparency=.25},f)
+    New("Frame",{Size=UDim2.fromOffset(42,1),Position=UDim2.new(0,0,1,-1),BackgroundColor3=T.Blue},f)
+    return f
+end
+
+local function PageHeader(parent,kicker,title,sub)
+    local f=New("Frame",{Size=UDim2.new(1,0,0,51),BackgroundTransparency=1},parent)
+    Label(f,kicker:upper(),UDim2.new(1,0,0,10),UDim2.fromOffset(0,0),F.Bold,T.Blue2,7)
+    Label(f,title,UDim2.new(1,-100,0,22),UDim2.fromOffset(0,9),F.Bold,T.Text,17)
+    Label(f,sub,UDim2.new(1,-20,0,14),UDim2.fromOffset(0,32),F.Regular,T.Text2,8)
+    return f
+end
+
+local function Badge(parent,text,color,bg)
+    local b=New("Frame",{Size=UDim2.fromOffset(math.max(38,#text*6+18),18),BackgroundColor3=bg or T.Card2},parent)
+    Corner(b,9); Stroke(b,color,.5)
+    Label(b,text,UDim2.fromScale(1,1),nil,F.Bold,color,7,Enum.TextXAlignment.Center)
+    return b
+end
+
+local function Stat(parent,label,value,detail,accent)
+    local f=New("Frame",{Size=UDim2.new(1,0,0,58),BackgroundColor3=T.Card},parent)
+    Corner(f,7); Stroke(f,T.Border,.35)
+    New("Frame",{Size=UDim2.fromOffset(2,30),Position=UDim2.new(0,0,.5,-15),BackgroundColor3=accent or T.Blue},f)
+    Label(f,label:upper(),UDim2.new(1,-18,0,9),UDim2.fromOffset(12,8),F.Bold,T.Text3,7)
+    Label(f,value,UDim2.new(1,-18,0,18),UDim2.fromOffset(12,18),F.Bold,T.Text,14)
+    Label(f,detail,UDim2.new(1,-18,0,9),UDim2.fromOffset(12,39),F.Regular,T.Text3,7)
+    return f
+end
+
+local function Toggle(parent,title,desc,default,callback)
+    local on=default==true
+    local card=New("Frame",{Size=UDim2.new(1,0,0,65),BackgroundColor3=T.Card},parent)
+    Corner(card,7); local st=Stroke(card,T.Border,.25)
+    local iconBox=New("Frame",{Size=UDim2.fromOffset(30,30),Position=UDim2.fromOffset(11,12),BackgroundColor3=T.Surface2},card)
+    Corner(iconBox,7); Stroke(iconBox,T.Border,.35)
+    Label(iconBox,"◈",UDim2.fromScale(1,1),nil,F.Bold,on and T.Blue2 or T.Text3,12,Enum.TextXAlignment.Center)
+    Label(card,title,UDim2.new(1,-105,0,15),UDim2.fromOffset(51,10),F.Semi,T.Text,10)
+    Label(card,desc,UDim2.new(1,-105,0,11),UDim2.fromOffset(51,26),F.Regular,T.Text2,8)
+    local state=Label(card,on and "ENABLED" or "STANDBY",UDim2.new(0,70,0,9),UDim2.fromOffset(51,43),F.Bold,on and T.Blue2 or T.Text3,6)
+
+    local btn=Button(card,{Size=UDim2.fromOffset(42,22),Position=UDim2.new(1,-55,.5,-11),BackgroundColor3=on and T.Blue or T.Track,Text=""})
+    Corner(btn,11); local bst=Stroke(btn,on and T.Blue2 or T.Border,.25)
+    local knob=New("Frame",{Size=UDim2.fromOffset(16,16),Position=on and UDim2.new(1,-19,.5,-8) or UDim2.fromOffset(3,3),BackgroundColor3=T.White},btn); Corner(knob,8)
+    local function set(v,animate)
+        on=v
+        state.Text=on and "ENABLED" or "STANDBY"; state.TextColor3=on and T.Blue2 or T.Text3
+        local pos=on and UDim2.new(1,-19,.5,-8) or UDim2.fromOffset(3,3)
+        if animate then Tween(btn,.14,{BackgroundColor3=on and T.Blue or T.Track}); Tween(knob,.14,{Position=pos}); Tween(bst,.14,{Color=on and T.Blue2 or T.Border}); Tween(iconBox,.14,{BackgroundColor3=on and T.DeepBlue or T.Surface2}) else btn.BackgroundColor3=on and T.Blue or T.Track; knob.Position=pos end
+        if callback then callback(on) end
+    end
+    btn.MouseButton1Click:Connect(function() set(not on,true) end)
+    card.MouseEnter:Connect(function() Tween(card,.1,{BackgroundColor3=T.Hover}); Tween(st,.1,{Color=T.Border2}) end)
+    card.MouseLeave:Connect(function() Tween(card,.1,{BackgroundColor3=T.Card}); Tween(st,.1,{Color=T.Border}) end)
+    return {Card=card,Get=function() return on end,Set=function(v) set(v,true) end}
+end
+
+local function Slider(parent,title,desc,mn,mx,default,suffix,callback)
+    local value=math.clamp(default or mn,mn,mx)
+    local card=New("Frame",{Size=UDim2.new(1,0,0,72),BackgroundColor3=T.Card},parent); Corner(card,7); local st=Stroke(card,T.Border,.25)
+    Label(card,title,UDim2.new(.65,0,0,15),UDim2.fromOffset(12,9),F.Semi,T.Text,10)
+    Label(card,desc,UDim2.new(.65,0,0,10),UDim2.fromOffset(12,25),F.Regular,T.Text2,7)
+    local val=Label(card,string.format("%.1f%s",value,suffix or ""),UDim2.new(0,70,0,16),UDim2.new(1,-82,0,9),F.Bold,T.Blue2,10,Enum.TextXAlignment.Right)
+    local track=New("Frame",{Size=UDim2.new(1,-24,0,5),Position=UDim2.fromOffset(12,51),BackgroundColor3=T.Track},card); Corner(track,3); Stroke(track,T.Border,.45)
+    local p=(value-mn)/(mx-mn)
+    local fill=New("Frame",{Size=UDim2.new(p,0,1,0),BackgroundColor3=T.Blue},track); Corner(fill,3)
+    local knob=New("Frame",{Size=UDim2.fromOffset(12,12),Position=UDim2.new(p,-6,.5,-6),BackgroundColor3=T.White},track); Corner(knob,6); Stroke(knob,T.Blue2,.25)
+    local drag=false
+    local function setFromX(x)
+        local px=math.clamp((x-track.AbsolutePosition.X)/track.AbsoluteSize.X,0,1)
+        value=math.floor((mn+(mx-mn)*px)*10+.5)/10
+        fill.Size=UDim2.new(px,0,1,0); knob.Position=UDim2.new(px,-6,.5,-6); val.Text=string.format("%.1f%s",value,suffix or "")
+        if callback then callback(value) end
+    end
+    track.InputBegan:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then drag=true; setFromX(i.Position.X) end end)
+    UserInputService.InputChanged:Connect(function(i) if drag and (i.UserInputType==Enum.UserInputType.MouseMovement or i.UserInputType==Enum.UserInputType.Touch) then setFromX(i.Position.X) end end)
+    UserInputService.InputEnded:Connect(function(i) if drag and (i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch) then drag=false end end)
+    card.MouseEnter:Connect(function() Tween(card,.1,{BackgroundColor3=T.Hover}); Tween(st,.1,{Color=T.Border2}); Tween(knob,.1,{Size=UDim2.fromOffset(15,15)}) end)
+    card.MouseLeave:Connect(function() Tween(card,.1,{BackgroundColor3=T.Card}); Tween(st,.1,{Color=T.Border}); Tween(knob,.1,{Size=UDim2.fromOffset(12,12)}) end)
+    return {Card=card,Get=function() return value end}
+end
+
+local function Keybind(parent,title,defaultKey,callback)
+    local key=defaultKey or Enum.KeyCode.LeftShift
+    local listening=false
+    local card=New("Frame",{Size=UDim2.new(1,0,0,56),BackgroundColor3=T.Card},parent); Corner(card,7); Stroke(card,T.Border,.3)
+    Label(card,title,UDim2.new(.55,0,0,15),UDim2.fromOffset(12,9),F.Semi,T.Text,10)
+    Label(card,"Click to capture a new key",UDim2.new(.55,0,0,11),UDim2.fromOffset(12,25),F.Regular,T.Text3,7)
+    local b=Button(card,{Size=UDim2.fromOffset(104,30),Position=UDim2.new(1,-116,.5,-15),BackgroundColor3=T.Surface2,Text=key.Name,TextColor3=T.Blue2,Font=F.Semi,TextSize=9}); Corner(b,5); local bs=Stroke(b,T.Border,.2)
+    local conn
+    local function stop()
+        if conn then conn:Disconnect(); conn=nil end
+        listening=false; b.Text=key.Name; b.TextColor3=T.Blue2; bs.Color=T.Border
+    end
+    b.MouseButton1Click:Connect(function()
+        if listening then stop(); return end
+        listening=true; b.Text="PRESS KEY"; b.TextColor3=T.Green; bs.Color=T.Green
+        conn=UserInputService.InputBegan:Connect(function(i)
+            if i.UserInputType==Enum.UserInputType.Keyboard then
+                if i.KeyCode==Enum.KeyCode.Escape then stop(); return end
+                key=i.KeyCode; stop(); if callback then callback(key) end
+            end
+        end)
+    end)
+    return {Card=card,Get=function() return key end}
+end
+
+local function PrimaryButton(parent,text,callback)
+    local b=Button(parent,{Size=UDim2.new(1,0,0,38),BackgroundColor3=T.Blue,Text="✦   "..text,TextColor3=T.White,Font=F.Bold,TextSize=10}); Corner(b,6); local s=Stroke(b,T.Blue2,.2)
+    New("Frame",{Size=UDim2.new(1,-2,0,1),Position=UDim2.fromOffset(1,1),BackgroundColor3=T.White,BackgroundTransparency=.86},b)
+    b.MouseEnter:Connect(function() Tween(b,.1,{BackgroundColor3=T.Blue2}); Tween(s,.1,{Transparency=0}) end)
+    b.MouseLeave:Connect(function() Tween(b,.1,{BackgroundColor3=T.Blue}); Tween(s,.1,{Transparency=.2}) end)
+    b.MouseButton1Down:Connect(function() Tween(b,.06,{BackgroundColor3=T.DeepBlue}) end)
+    b.MouseButton1Up:Connect(function() Tween(b,.06,{BackgroundColor3=T.Blue2}) end)
+    b.MouseButton1Click:Connect(function() if callback then callback() end end)
+    return b
+end
+
+local function MiniCard(parent,title,value,detail,accent)
+    local f=New("Frame",{Size=UDim2.new(1,0,0,48),BackgroundColor3=T.Card},parent); Corner(f,6); Stroke(f,T.Border,.4)
+    New("Frame",{Size=UDim2.fromOffset(3,22),Position=UDim2.new(0,0,.5,-11),BackgroundColor3=accent or T.Blue},f)
+    Label(f,title:upper(),UDim2.new(.6,0,0,9),UDim2.fromOffset(12,7),F.Bold,T.Text3,6)
+    Label(f,value,UDim2.new(.4,-12,0,15),UDim2.new(.6,0,0,6),F.Bold,accent or T.Text,10,Enum.TextXAlignment.Right)
+    Label(f,detail,UDim2.new(1,-24,0,9),UDim2.fromOffset(12,28),F.Regular,T.Text2,7)
+    return f
+end
+
+local function Drawer(parent,title,subtitle)
+    local expanded=true
+    local card=New("Frame",{Size=UDim2.new(1,0,0,48),BackgroundColor3=T.Card,ClipsDescendants=true},parent); Corner(card,7); local s=Stroke(card,T.Border,.25)
+    local head=Button(card,{Size=UDim2.new(1,0,0,48),BackgroundTransparency=1,Text=""})
+    local icon=New("Frame",{Size=UDim2.fromOffset(28,28),Position=UDim2.fromOffset(10,10),BackgroundColor3=T.DeepBlue},head); Corner(icon,7); Stroke(icon,T.Blue,.35); Label(icon,"⌁",UDim2.fromScale(1,1),nil,F.Bold,T.Blue2,14,Enum.TextXAlignment.Center)
+    Label(head,title,UDim2.new(.55,0,0,14),UDim2.fromOffset(48,8),F.Semi,T.Text,10)
+    Label(head,subtitle,UDim2.new(.55,0,0,10),UDim2.fromOffset(48,25),F.Regular,T.Text2,7)
+    local badge=Badge(head,"READY",T.Green,T.Surface2); badge.Position=UDim2.new(1,-88,.5,-9)
+    local chev=Label(head,"⌃",UDim2.fromOffset(18,20),UDim2.new(1,-25,.5,-10),F.Bold,T.Blue2,11,Enum.TextXAlignment.Center)
+    local body=New("Frame",{Size=UDim2.new(1,-20,0,0),Position=UDim2.fromOffset(10,54),BackgroundTransparency=1,ClipsDescendants=true},card)
+    local bl=Layout(body,nil,6)
+    local function refresh()
+        local h=bl.AbsoluteContentSize.Y+2
+        body.Size=UDim2.new(1,-20,0,h)
+        Tween(card,.22,{Size=UDim2.new(1,0,0,(expanded and 58+h or 48))})
+        chev.Text=expanded and "⌃" or "⌄"; s.Color=expanded and T.Border2 or T.Border
+    end
+    head.MouseButton1Click:Connect(function() expanded=not expanded; refresh() end)
+    return {Card=card,Body=body,Refresh=refresh}
+end
+
+-- ================================================================
+-- TOASTS
+-- ================================================================
+local toastLayer=New("Frame",{Size=UDim2.fromOffset(310,260),Position=UDim2.new(1,-326,1,-38),AnchorPoint=Vector2.new(0,1),BackgroundTransparency=1,ZIndex=100},gui)
+local toastLayout=Layout(toastLayer,nil,7,Enum.HorizontalAlignment.Right,Enum.VerticalAlignment.Bottom)
+local function Notify(title,message,color)
+    color=color or T.Blue2
+    local f=New("Frame",{Size=UDim2.new(1,0,0,62),BackgroundColor3=T.Card,BackgroundTransparency=.02,ClipsDescendants=true},toastLayer); Corner(f,7); local s=Stroke(f,T.Border,.2)
+    New("Frame",{Size=UDim2.fromOffset(3,62),BackgroundColor3=color},f)
+    local ic=New("Frame",{Size=UDim2.fromOffset(28,28),Position=UDim2.fromOffset(12,17),BackgroundColor3=T.Surface2},f); Corner(ic,14); Stroke(ic,color,.45); Label(ic,"✓",UDim2.fromScale(1,1),nil,F.Bold,color,11,Enum.TextXAlignment.Center)
+    Label(f,title:upper(),UDim2.new(1,-82,0,13),UDim2.fromOffset(50,10),F.Bold,T.Text,9)
+    Label(f,message,UDim2.new(1,-64,0,22),UDim2.fromOffset(50,27),F.Regular,T.Text2,8)
+    Label(f,"NOW",UDim2.fromOffset(28,10),UDim2.new(1,-38,0,8),F.Bold,T.Text3,6,Enum.TextXAlignment.Right)
+    f.Position=UDim2.new(1,25,0,0)
+    Tween(f,.22,{Position=UDim2.new(0,0,0,0)})
+    task.delay(2.6,function()
+        if f.Parent then
+            local out=Tween(f,.2,{Position=UDim2.new(1,25,0,0),BackgroundTransparency=1})
+            out.Completed:Connect(function() if f.Parent then f:Destroy() end end)
+        end
+    end)
+end
+
+-- ================================================================
+-- PAGES
+-- ================================================================
+local dashboard=Page("Dashboard")
+PageHeader(dashboard,"OVERVIEW","Control Center","Quick access to your active systems and session state.")
+
+local statRow=New("Frame",{Size=UDim2.new(1,0,0,58),BackgroundTransparency=1},dashboard); local statGrid=New("UIGridLayout",{CellPadding=UDim2.fromOffset(7,0),CellSize=UDim2.new(1/3,-5,0,58),FillDirectionMaxCells=3,SortOrder=Enum.SortOrder.LayoutOrder},statRow)
+Stat(statRow,"Status","READY","All systems nominal",T.Green)
+Stat(statRow,"Modules","04","Loaded components",T.Blue2)
+Stat(statRow,"Session","LOCAL","Secure client state",T.Cyan)
+
+Section(dashboard,"Quick Controls","Primary interface actions")
+local dashGrid=New("Frame",{Size=UDim2.new(1,0,0,65),BackgroundTransparency=1},dashboard); New("UIGridLayout",{CellPadding=UDim2.fromOffset(8,0),CellSize=UDim2.new(.5,-4,1,0),FillDirectionMaxCells=2},dashGrid)
+local actionCard=New("Frame",{BackgroundColor3=T.Card},dashGrid); Corner(actionCard,7); Stroke(actionCard,T.Border,.3)
+Label(actionCard,"CORE ENGINE",UDim2.new(1,-24,0,10),UDim2.fromOffset(12,9),F.Bold,T.Text3,7)
+Label(actionCard,"Ready to activate",UDim2.new(1,-24,0,15),UDim2.fromOffset(12,21),F.Semi,T.Text,10)
+local act=Button(actionCard,{Size=UDim2.fromOffset(72,24),Position=UDim2.new(1,-84,.5,-12),BackgroundColor3=T.Blue,Text="ACTIVATE",TextColor3=T.White,Font=F.Bold,TextSize=7}); Corner(act,5)
+act.MouseEnter:Connect(function() Tween(act,.1,{BackgroundColor3=T.Blue2}) end); act.MouseLeave:Connect(function() Tween(act,.1,{BackgroundColor3=T.Blue}) end)
+act.MouseButton1Click:Connect(function() Notify("Core Engine","Interface state synchronized.",T.Green) end)
+
+local quick=New("Frame",{BackgroundColor3=T.Card},dashGrid); Corner(quick,7); Stroke(quick,T.Border,.3)
+Label(quick,"TELEMETRY",UDim2.new(1,-24,0,10),UDim2.fromOffset(12,9),F.Bold,T.Text3,7)
+Label(quick,"Live client metrics",UDim2.new(1,-24,0,15),UDim2.fromOffset(12,21),F.Semi,T.Text,10)
+local qdot=New("Frame",{Size=UDim2.fromOffset(6,6),Position=UDim2.new(1,-84,.5,-3),BackgroundColor3=T.Green},quick); Corner(qdot,3)
+Label(quick,"ACTIVE",UDim2.fromOffset(62,12),UDim2.new(1,-74,.5,-6),F.Bold,T.Green,7,Enum.TextXAlignment.Right)
+
+Section(dashboard,"Activity","Recent interface events")
+local activity=New("Frame",{Size=UDim2.new(1,0,0,82),BackgroundColor3=T.Card},dashboard); Corner(activity,7); Stroke(activity,T.Border,.3)
+local entries={{"SYSTEM","UI engine initialized","now",T.Green},{"PROFILE","Default profile loaded","now",T.Blue2},{"INPUT","RightShift toggle registered","ready",T.Cyan}}
+for i,e in ipairs(entries) do
+    local y=(i-1)*26
+    local dot=New("Frame",{Size=UDim2.fromOffset(5,5),Position=UDim2.new(0,12,0,y+10),BackgroundColor3=e[4]},activity); Corner(dot,3)
+    Label(activity,e[1],UDim2.fromOffset(52,10),UDim2.fromOffset(24,y+5),F.Bold,T.Text3,6)
+    Label(activity,e[2],UDim2.new(1,-130,0,12),UDim2.fromOffset(78,y+4),F.Regular,T.Text2,8)
+    Label(activity,e[3],UDim2.fromOffset(40,10),UDim2.new(1,-52,0,y+5),F.Regular,T.Text3,6,Enum.TextXAlignment.Right)
+    if i<3 then New("Frame",{Size=UDim2.new(1,-24,0,1),Position=UDim2.new(0,12,0,y+25),BackgroundColor3=T.Border,BackgroundTransparency=.55},activity) end
+end
+
+local playerPage=Page("Player")
+PageHeader(playerPage,"PLAYER","Movement Lab","Tune local movement presentation and control states.")
+Section(playerPage,"Movement","Core movement controls")
+Toggle(playerPage,"Speed Boost","Movement multiplier control",false,function(v) Notify("Speed Boost",v and "Enabled" or "Disabled",v and T.Green or T.Text2) end)
+local drawer=Drawer(playerPage,"Movement Extras","Advanced movement controls • 3 options")
+Toggle(drawer.Body,"Auto-Sprint Booster","Automatically arms sprint while moving",true,function(v) Notify("Auto-Sprint",v and "Armed" or "Disarmed",T.Blue2) end)
+Toggle(drawer.Body,"Bunny Hop Simulation","Consistent jump timing for local testing",false,function(v) Notify("Bunny Hop",v and "Enabled" or "Disabled",T.Blue2) end)
+Slider(drawer.Body,"Power Level","Adjust feature intensity",.5,3,1.5,"x",function() end)
+Keybind(drawer.Body,"Activation Keybind",Enum.KeyCode.LeftShift,function(k) Notify("Keybind Updated",k.Name,T.Cyan) end)
+task.defer(drawer.Refresh)
+Section(playerPage,"Session","Compact player telemetry")
+local sessionRow=New("Frame",{Size=UDim2.new(1,0,0,48),BackgroundTransparency=1},playerPage); New("UIGridLayout",{CellPadding=UDim2.fromOffset(7,0),CellSize=UDim2.new(1/3,-5,0,48),FillDirectionMaxCells=3},sessionRow)
+MiniCard(sessionRow,"Speed","16","Base value",T.Blue2); MiniCard(sessionRow,"State","READY","No active override",T.Green); MiniCard(sessionRow,"Input","LShift","Activation key",T.Cyan)
+
+local visualPage=Page("Visual")
+PageHeader(visualPage,"VISUAL","Appearance Lab","Fine control over the interface and display layer.")
+Section(visualPage,"Interface","Presentation controls")
+Toggle(visualPage,"Player Highlights","Local highlight presentation",false,function(v) Notify("Highlights",v and "Enabled" or "Disabled",T.Blue2) end)
+Toggle(visualPage,"Precision Crosshair","Minimal HUD reticle overlay",false,function(v) Notify("Crosshair",v and "Enabled" or "Disabled",T.Blue2) end)
+Slider(visualPage,"Field of View","Camera presentation range",70,120,90,"°",function(v) local cam=workspace.CurrentCamera if cam then cam.FieldOfView=v end end)
+Section(visualPage,"Atmosphere","Subtle interface styling")
+local atmos=New("Frame",{Size=UDim2.new(1,0,0,48),BackgroundColor3=T.Card},visualPage); Corner(atmos,7); Stroke(atmos,T.Border,.3)
+Label(atmos,"AMBIENT GLOW",UDim2.new(.6,0,0,12),UDim2.fromOffset(12,7),F.Semi,T.Text,9)
+Label(atmos,"Subtle lighting around active surfaces",UDim2.new(.6,0,0,10),UDim2.fromOffset(12,22),F.Regular,T.Text2,7)
+local ab=Button(atmos,{Size=UDim2.fromOffset(58,24),Position=UDim2.new(1,-70,.5,-12),BackgroundColor3=T.DeepBlue,Text="ON",TextColor3=T.Blue2,Font=F.Bold,TextSize=8}); Corner(ab,5); Stroke(ab,T.Blue,.4)
+
+local settingsPage=Page("Settings")
+PageHeader(settingsPage,"SYSTEM","Settings","Input, behavior and application information.")
+Section(settingsPage,"Controls","Interface behavior")
+Keybind(settingsPage,"Toggle UI Menu",CONFIG.ToggleKey,function(k) CONFIG.ToggleKey=k; Notify("Toggle Key",k.Name,T.Cyan) end)
+Toggle(settingsPage,"Sound Feedback","Interface click and state feedback",true,function(v) Notify("Sound",v and "Enabled" or "Muted",T.Blue2) end)
+Section(settingsPage,"About","Build information")
+local about=New("Frame",{Size=UDim2.new(1,0,0,72),BackgroundColor3=T.Card},settingsPage); Corner(about,7); Stroke(about,T.Border,.3)
+Label(about,"PROJECT NOVA",UDim2.new(.55,0,0,14),UDim2.fromOffset(12,9),F.Bold,T.Text,10)
+Label(about,"Native Roblox UI / Luau",UDim2.new(.55,0,0,10),UDim2.fromOffset(12,24),F.Regular,T.Text2,7)
+Badge(about,"BUILD 2.5",T.Blue2,T.DeepBlue).Position=UDim2.new(1,-82,0,10)
+Label(about,"Design system: NOVA DARK",UDim2.new(.55,0,0,10),UDim2.fromOffset(12,43),F.Regular,T.Text3,7)
+Label(about,"600 × 410 compact desktop layout",UDim2.new(1,-24,0,10),UDim2.fromOffset(12,57),F.Regular,T.Text3,7)
+
+-- ================================================================
+-- FOOTER
+-- ================================================================
+local footer=New("Frame",{Size=UDim2.new(1,0,0,CONFIG.FooterH),Position=UDim2.new(0,0,1,-CONFIG.FooterH),BackgroundColor3=T.Surface,ZIndex=20},window)
+New("Frame",{Size=UDim2.new(1,0,0,1),BackgroundColor3=T.Border},footer)
+local footDot=New("Frame",{Size=UDim2.fromOffset(5,5),Position=UDim2.new(0,10,.5,-2),BackgroundColor3=T.Green},footer); Corner(footDot,3)
+Label(footer,"SYSTEM READY",UDim2.fromOffset(78,CONFIG.FooterH),UDim2.fromOffset(19,0),F.Bold,T.Text3,7)
+Label(footer,"FPS --   •   PING --",UDim2.fromOffset(145,CONFIG.FooterH),UDim2.fromOffset(106,0),F.Regular,T.Text3,7)
+Label(footer,"NOVA UI ENGINE  /  2.5",UDim2.fromOffset(160,CONFIG.FooterH),UDim2.new(1,-170,0,0),F.Regular,T.Text3,7,Enum.TextXAlignment.Right)
+
+-- ================================================================
+-- PAGE SWITCHING
+-- ================================================================
+local function SwitchPage(name)
+    if not pages[name] then return end
+    activePage=name
+    for id,data in pairs(nav) do
+        local on=id==name
+        Tween(data.button,.16,{BackgroundColor3=on and T.DeepBlue or T.Surface,BackgroundTransparency=on and .12 or 1})
+        Tween(data.bar,.16,{BackgroundTransparency=on and 0 or 1})
+        Tween(data.icon,.16,{TextColor3=on and T.Blue2 or T.Text3})
+        Tween(data.text,.16,{TextColor3=on and T.Text or T.Text2})
+        Tween(data.dot,.16,{BackgroundTransparency=on and 0 or 1})
+    end
+    for id,p in pairs(pages) do p.Visible=id==name end
+    local p=pages[name]; p.Position=UDim2.new(0,8,0,0); Tween(p,.18,{Position=UDim2.new(0,0,0,0)})
+end
+for id,data in pairs(nav) do data.button.MouseButton1Click:Connect(function() SwitchPage(id) end) end
+SwitchPage("Dashboard")
+
+-- ================================================================
+-- DRAGGING / MINIMIZE / VISIBILITY
+-- ================================================================
+local dragging=false; local dragStart; local startPos; local dragInput
+local function beginDrag(input)
+    if input.UserInputType==Enum.UserInputType.MouseButton1 or input.UserInputType==Enum.UserInputType.Touch then
+        dragging=true; dragStart=input.Position; startPos=window.Position
+        input.Changed:Connect(function() if input.UserInputState==Enum.UserInputState.End then dragging=false end end)
+    end
+end
+titleBar.InputBegan:Connect(beginDrag)
+titleBar.InputChanged:Connect(function(input) if input.UserInputType==Enum.UserInputType.MouseMovement or input.UserInputType==Enum.UserInputType.Touch then dragInput=input end end)
+UserInputService.InputChanged:Connect(function(input)
+    if dragging and input==dragInput then
+        local d=input.Position-dragStart
+        local p=UDim2.new(startPos.X.Scale,startPos.X.Offset+d.X,startPos.Y.Scale,startPos.Y.Offset+d.Y)
+        window.Position=p; shadow.Position=p
+    end
+end)
+
+local minimized=false
+local function SetMinimized(v)
+    minimized=v
+    local h=v and CONFIG.TitleH or CONFIG.Window.Y
+    if v then
+        body.Visible=false; footer.Visible=false
+        Tween(window,.22,{Size=UDim2.fromOffset(CONFIG.Window.X,CONFIG.TitleH)})
+        Tween(shadow,.22,{Size=UDim2.fromOffset(CONFIG.Window.X+22,CONFIG.TitleH+18)})
+    else
+        Tween(window,.22,{Size=UDim2.fromOffset(CONFIG.Window.X,CONFIG.Window.Y)})
+        Tween(shadow,.22,{Size=UDim2.fromOffset(CONFIG.Window.X+22,CONFIG.Window.Y+22)})
+        task.delay(.18,function() if not minimized then body.Visible=true; footer.Visible=true end end)
+    end
+end
+minBtn.MouseButton1Click:Connect(function() SetMinimized(not minimized) end)
+maxBtn.MouseButton1Click:Connect(function() Notify("Layout","Compact desktop layout is fixed at 600 × 410.",T.Cyan) end)
+
+local visible=true
+closeBtn.MouseButton1Click:Connect(function()
+    visible=false
+    Tween(window,.18,{BackgroundTransparency=1,Size=UDim2.fromOffset(CONFIG.Window.X*.98,CONFIG.Window.Y*.98)})
+    Tween(shadow,.18,{BackgroundTransparency=1})
+    task.delay(.2,function() if not visible then window.Visible=false; shadow.Visible=false end end)
+end)
+
+local floating=Button(gui,{Size=UDim2.fromOffset(42,42),Position=UDim2.new(0,18,.5,-21),BackgroundColor3=T.Card,Text="✦",TextColor3=T.Blue2,Font=F.Bold,TextSize=17,ZIndex=90})
+Corner(floating,12); Stroke(floating,T.Blue,.25)
+floating.Visible=false
+floating.MouseButton1Click:Connect(function()
+    visible=true; window.Visible=true; shadow.Visible=true; window.BackgroundTransparency=0
+    shadow.BackgroundTransparency=.48
+    Tween(window,.18,{Size=UDim2.fromOffset(CONFIG.Window.X,CONFIG.Window.Y)})
+end)
+
+UserInputService.InputBegan:Connect(function(input,gp)
+    if not gp and input.KeyCode==CONFIG.ToggleKey then
+        if visible then
+            visible=false
+            Tween(window,.16,{BackgroundTransparency=1})
+            Tween(shadow,.16,{BackgroundTransparency=1})
+            task.delay(.17,function() if not visible then window.Visible=false; shadow.Visible=false; floating.Visible=true end end)
+        else
+            visible=true; floating.Visible=false; window.Visible=true; shadow.Visible=true
+            window.BackgroundTransparency=1; shadow.BackgroundTransparency=1
+            Tween(window,.2,{BackgroundTransparency=0}); Tween(shadow,.2,{BackgroundTransparency=.48})
+        end
+    end
+end)
+
+-- live telemetry
+local frames, elapsed = 0, 0
+RunService.RenderStepped:Connect(function(dt)
+    frames += 1; elapsed += dt
+    if elapsed >= .5 then
+        local fps=math.floor(frames/elapsed)
+        local ping=0
+        pcall(function() ping=math.floor(player:GetNetworkPing()*1000) end)
+        if ping<0 then ping=0 end
+        for _,obj in ipairs(footer:GetChildren()) do
+            if obj:IsA("TextLabel") and string.find(obj.Text,"FPS") then obj.Text=string.format("FPS %d   •   PING %dms",fps,ping) end
+        end
+        frames=0; elapsed=0
+    end
+end)
+
+-- boot animation
+window.BackgroundTransparency=1; shadow.BackgroundTransparency=1
+window.Size=UDim2.fromOffset(CONFIG.Window.X*.96,CONFIG.Window.Y*.96)
+shadow.Size=UDim2.fromOffset(CONFIG.Window.X*.96+22,CONFIG.Window.Y*.96+22)
+task.delay(.05,function()
+    Tween(window,.3,{BackgroundTransparency=0,Size=UDim2.fromOffset(CONFIG.Window.X,CONFIG.Window.Y)})
+    Tween(shadow,.3,{BackgroundTransparency=.48,Size=UDim2.fromOffset(CONFIG.Window.X+22,CONFIG.Window.Y+22)})
+    task.delay(.35,function() Notify("Project Nova","Premium UI overhaul loaded.",T.Green) end)
+end)
+
+print("[Project Nova] UI Overhaul 2.5 loaded.")
