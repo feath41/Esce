@@ -1410,8 +1410,7 @@ pcall(function()
         Size = UDim2.fromOffset(jumpSize, jumpSize),
         Position = UDim2.new(1, -jumpSize - 40, 1, -jumpSize - 55),
         BackgroundColor3 = Color3.fromRGB(15, 18, 26), BackgroundTransparency = 0.35,
-        Text = "JUMP
-▲", TextColor3 = T.White, Font = F.Bold, TextSize = 11,
+        Text = "JUMP\n▲", TextColor3 = T.White, Font = F.Bold, TextSize = 11,
     })
     Corner(jBtn, 999); Stroke(jBtn, T.Blue, 0.3, 2)
 
@@ -1732,9 +1731,7 @@ RunService.RenderStepped:Connect(function(dt)
                     local headPart = model:FindFirstChild("Head") or GetTargetPart(model)
                     if headPart then
                         local hpVal = entry.Humanoid and math.max(0, math.floor(entry.Humanoid.Health)) or 0
-                        local textContent = string.format("[%s]
-[%d HP]
-[%.0f studs]", entry.Name, hpVal, entry.Distance)
+                        local textContent = string.format("[%s]\n[%d HP]\n[%.0f studs]", entry.Name, hpVal, entry.Distance)
                         if not bb or not bb.Parent then
                             bb = Instance.new("BillboardGui")
                             bb.Name = "CombatHighlightInfoBB"
