@@ -609,8 +609,17 @@ local function Page(name)
     return p
 end
 
+local activeDropdownCloser = nil
+local function CloseAllDropdowns()
+    if activeDropdownCloser then
+        local c = activeDropdownCloser
+        activeDropdownCloser = nil
+        c()
+    end
+end
+
 SwitchPage = function(name)
-    CloseAllDropdowns()
+    if CloseAllDropdowns then CloseAllDropdowns() end
     if not pages[name] then return end
     activePage = name
     for id, data in pairs(nav) do
@@ -773,15 +782,6 @@ local function PrimaryButton(parent, text, callback)
     b.MouseButton1Up:Connect(function() Tween(b, 0.06, {BackgroundColor3 = T.Blue2}) end)
     b.MouseButton1Click:Connect(function() if callback then callback() end end)
     return b
-end
-
-local activeDropdownCloser = nil
-local function CloseAllDropdowns()
-    if activeDropdownCloser then
-        local c = activeDropdownCloser
-        activeDropdownCloser = nil
-        c()
-    end
 end
 
 local function Dropdown(parent, title, desc, options, defaultVal, callback)
