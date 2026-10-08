@@ -1884,7 +1884,7 @@ local function scanActiveQuests()
     activeQuestsList = list
     local opts = { "All (Auto)" }
     for _, q in ipairs(list) do
-        local label = string.format("%s (%s)", q.NPC or q.Id, q.Fish and (q.Fish .. " [" .. q.Progress .. "]") or q.Progress)
+        local label = string.format("%s: %s", q.NPC or q.Id, q.Fish and (q.Fish .. " (" .. q.Progress .. ")") or q.Progress)
         table.insert(opts, label)
     end
     activeQuestOptions = opts
@@ -1919,6 +1919,25 @@ pcall(function()
     end
 end)
 
+-- Cache anti-spam klaim dan interaksi NPC
+local claimedQuests    = {}
+local giftFishAttempts = {}
+
+local function matchQuest(q, target)
+    if not q or not target then return false end
+    if target == "All (Auto)" then return true end
+    local cleanT = target:lower():gsub("%s+", "")
+    local cleanNPC = (q.NPC or ""):lower():gsub("%s+", "")
+    local cleanId = (q.Id or ""):lower():gsub("%s+", "")
+    if cleanNPC ~= "" and (cleanT:find(cleanNPC, 1, true) or cleanNPC:find(cleanT, 1, true)) then
+        return true
+    end
+    if cleanId ~= "" and (cleanT:find(cleanId, 1, true) or cleanId:find(cleanT, 1, true)) then
+        return true
+    end
+    return false
+end
+
 local function setAutoQuest(state)
     if state then
         if autoQuestRunning then return end
@@ -1932,49 +1951,93 @@ local function setAutoQuest(state)
                         return
                     end
 
-                    -- Pilih quest yang akan dikerjakan
                     local currentQ = nil
+                    local now = tick()
+
                     if selectedQuestName == "All (Auto)" then
-                        -- Cari quest yang belum selesai
+                        -- Prioritas 1: Misi MANCING yang BELUM SELESAI
                         for _, q in ipairs(qList) do
-                            if not q.Completed then
+                            local key = q.NPC or q.Id
+                            local isClaimCooldown = claimedQuests[key] and (now - claimedQuests[key] < 60)
+                            if q.Fish and not q.Completed and not isClaimCooldown then
                                 currentQ = q
                                 break
                             end
                         end
-                        if not currentQ then currentQ = qList[1] end
+
+                        -- Prioritas 2: Misi MANCING yang SUDAH SELESAI tapi BELUM DIKLAIM
+                        if not currentQ then
+                            for _, q in ipairs(qList) do
+                                local key = q.NPC or q.Id
+                                local isClaimCooldown = claimedQuests[key] and (now - claimedQuests[key] < 60)
+                                if q.Fish and q.Completed and not isClaimCooldown then
+                                    currentQ = q
+                                    break
+                                end
+                            end
+                        end
+
+                        -- Prioritas 3: Misi lain yang belum selesai dan bukan Gift Fish
+                        if not currentQ then
+                            for _, q in ipairs(qList) do
+                                local key = q.NPC or q.Id
+                                local isClaimCooldown = claimedQuests[key] and (now - claimedQuests[key] < 60)
+                                if not q.Completed and not isClaimCooldown and not q.IsGift then
+                                    currentQ = q
+                                    break
+                                end
+                            end
+                        end
                     else
-                        for i, q in ipairs(qList) do
-                            local label = activeQuestOptions[i + 1]
-                            if label == selectedQuestName then
+                        -- Pemain memilih quest tertentu secara spesifik
+                        for _, q in ipairs(qList) do
+                            if matchQuest(q, selectedQuestName) then
                                 currentQ = q
                                 break
                             end
                         end
-                        if not currentQ then currentQ = qList[1] end
                     end
 
+                    -- Jika tidak ada quest aktif yang perlu dikerjakan
                     if not currentQ then
+                        if instantRunning then setInstantFishing(false) end
                         task.wait(2)
                         return
                     end
 
-                    -- Cek status apakah sudah selesai
+                    local qKey = currentQ.NPC or currentQ.Id
+
+                    -- KASUS 1: MISI SUDAH SELESAI (COMPLETED)
                     if currentQ.Completed then
+                        -- Jika baru saja klaim dalam 60 detik terakhir, lewati agar tidak looping!
+                        if claimedQuests[qKey] and (now - claimedQuests[qKey] < 60) then
+                            task.wait(2)
+                            return
+                        end
+
+                        -- Hentikan fishing saat klaim
+                        if instantRunning then setInstantFishing(false) end
+                        if running then setFishing(false) end
+
                         if autoClaimQuest and currentQ.NPC then
                             local npcObj = findNPCInWorkspace(currentQ.NPC)
                             if npcObj then
                                 teleportToNPCObj(npcObj)
-                                task.wait(1)
+                                task.wait(0.8)
                                 interactWithNPC(npcObj)
-                                task.wait(2)
+                                claimedQuests[qKey] = tick()
+                                UI:Notify({
+                                    Title = "Auto Quest",
+                                    Content = "Misi selesai! Klaim ke NPC " .. currentQ.NPC,
+                                    Duration = 3
+                                })
+                                task.wait(3)
                             end
                         end
-                        task.wait(2)
                         return
                     end
 
-                    -- Jalankan Misi Memancing
+                    -- KASUS 2: MISI MANCING IKAN (q.Fish)
                     if currentQ.Fish then
                         local targetIsland = currentQ.Island or getIslandForFish(currentQ.Fish)
                         if autoTeleportQuest and targetIsland and TeleportCFrames[targetIsland] then
@@ -1987,27 +2050,37 @@ local function setAutoQuest(state)
                             end
                         end
 
-                        -- Aktifkan Instant Fishing jika belum jalan
+                        -- Jalankan Instant Fishing jika belum jalan
                         if not instantRunning and not running then
                             setInstantFishing(true)
                         end
-                    elseif currentQ.IsGift then
-                        -- Quest Gift Fish
-                        if currentQ.NPC then
-                            local npcObj = findNPCInWorkspace(currentQ.NPC)
-                            if npcObj then
-                                teleportToNPCObj(npcObj)
-                                task.wait(1)
-                                interactWithNPC(npcObj)
-                                task.wait(2)
+                        task.wait(1)
+                        return
+                    end
+
+                    -- KASUS 3: MISI GIFT FISH
+                    if currentQ.IsGift then
+                        -- Beri jeda minimal 45 detik antar interaksi gift
+                        if not giftFishAttempts[qKey] or (now - giftFishAttempts[qKey] > 45) then
+                            if currentQ.NPC then
+                                local npcObj = findNPCInWorkspace(currentQ.NPC)
+                                if npcObj then
+                                    teleportToNPCObj(npcObj)
+                                    task.wait(0.8)
+                                    interactWithNPC(npcObj)
+                                    giftFishAttempts[qKey] = tick()
+                                    task.wait(2)
+                                end
                             end
                         end
+                        task.wait(2)
+                        return
                     end
                 end)
                 if not ok then
                     warn("[Auto Quest] Error: " .. tostring(err))
                 end
-                task.wait(2)
+                task.wait(1.5)
             end
         end)
     else
@@ -2196,13 +2269,14 @@ Window:AddTab("Auto Quest", function(P)
         Callback = function()
             pcall(function()
                 local qList = scanActiveQuests()
-                local targetQ = qList[1]
+                local targetQ = nil
                 for _, q in ipairs(qList) do
-                    if selectedQuestName:find(q.NPC, 1, true) then
+                    if matchQuest(q, selectedQuestName) then
                         targetQ = q
                         break
                     end
                 end
+                if not targetQ then targetQ = qList[1] end
                 if targetQ and targetQ.NPC then
                     local npc = findNPCInWorkspace(targetQ.NPC)
                     if npc and teleportToNPCObj(npc) then
@@ -2220,13 +2294,14 @@ Window:AddTab("Auto Quest", function(P)
         Callback = function()
             pcall(function()
                 local qList = scanActiveQuests()
-                local targetQ = qList[1]
+                local targetQ = nil
                 for _, q in ipairs(qList) do
-                    if selectedQuestName:find(q.NPC, 1, true) then
+                    if matchQuest(q, selectedQuestName) then
                         targetQ = q
                         break
                     end
                 end
+                if not targetQ then targetQ = qList[1] end
                 if targetQ and targetQ.Fish then
                     local isl = targetQ.Island or getIslandForFish(targetQ.Fish)
                     local cf = TeleportCFrames[isl]
@@ -2246,13 +2321,14 @@ Window:AddTab("Auto Quest", function(P)
         Callback = function()
             pcall(function()
                 local qList = scanActiveQuests()
-                local targetQ = qList[1]
+                local targetQ = nil
                 for _, q in ipairs(qList) do
-                    if selectedQuestName:find(q.NPC, 1, true) then
+                    if matchQuest(q, selectedQuestName) then
                         targetQ = q
                         break
                     end
                 end
+                if not targetQ then targetQ = qList[1] end
                 if targetQ and targetQ.NPC then
                     local npc = findNPCInWorkspace(targetQ.NPC)
                     if npc then
